@@ -1,2 +1,6 @@
+# uv 
+.venv/
+
+# project specific
 downloads/
 *datafiles/
