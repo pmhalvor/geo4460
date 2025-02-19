@@ -1,5 +1,6 @@
 # uv 
 .venv/
+.DS_Store
 
 # project specific
 downloads/
