@@ -1,0 +1,13 @@
+[project]
+name = "gis3"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "jupyter>=1.1.1",
+    "matplotlib>=3.10.0",
+    "openpyxl>=3.1.5",
+    "pandas>=2.2.3",
+    "tabulate>=0.9.0",
+]

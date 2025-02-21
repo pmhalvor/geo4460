@@ -1,6 +1,9 @@
 # uv 
 .venv/
+.python-version
+uv.lock
 .DS_Store
+
 
 # project specific
 downloads/
