@@ -5,6 +5,9 @@ uv.lock
 .DS_Store
 
 
+
 # project specific
 downloads/
 *datafiles/
+*/data/
+#*.pptx
