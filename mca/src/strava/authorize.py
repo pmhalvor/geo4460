@@ -30,9 +30,9 @@ def get_authorization_url():
 
 
 def authorize():
-    print("Starting flask server at mca/src/strava_flask_app.py from ", os.getcwd())
+    print("Starting flask server at mca/src/strava/flask_app.py from ", os.getcwd())
     # TODO make more robust path handling
-    flask_process = subprocess.Popen(["python", "mca/src/strava_flask_app.py"])
+    flask_process = subprocess.Popen(["python", "mca/src/strava/flask_app.py"])
     time.sleep(1) # waits for server to be fully loaded
 
     auth_url = get_authorization_url()
