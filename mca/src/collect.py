@@ -72,7 +72,7 @@ if __name__ == "__main__":
     oslo_bounds = locations["oslo"]["bounds"]
     oslo_segments = explore_segments(oslo_bounds).get("segments", None)
 
-    segments = explore_segments_with_multiple_bounds(oslo_stations.head(2), area_sizes=[3, 5, 10])
+    segments = explore_segments_with_multiple_bounds(oslo_stations, area_sizes=[3, 5, 10])
     store_segments(segments)
     print(
         f"Nice exploring! 🔎"
