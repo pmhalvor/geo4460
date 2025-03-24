@@ -11,7 +11,8 @@ __pycache__/
 # project specific
 downloads/
 *datafiles/
-*/data/
+# */data/
+.hide
 #*.pptx
 
 # mca
