@@ -6,6 +6,8 @@ import polyline
 
 from shapely.geometry import LineString
 from authorize import get_token
+import folium
+import webbrowser
 
 
 # ensure valid token is present
@@ -113,25 +115,62 @@ def update_geodata(
     points_gdf_4258.to_file(segment_shapefile_path, driver="ESRI Shapefile")
 
 
-def store_segments(segments, linestring_points):
+def store_segments(segments):
     """
     Store the segments in a geodata file.
     """
+    linestring_points = parse_segments_points(segments)
+
     gdf = gpd.GeoDataFrame(data=segments, geometry=linestring_points, crs="EPSG:4326")
 
     update_geodata(gdf)
     print("Segments stored in geodata file.")
 
 
+def show_segments(segment_metadata_path=SEGMENT_METADATA_PATH):
+    """
+    Show the segments on an interactive map.
+    """
+    if os.path.exists(segment_metadata_path):
+        segments = gpd.read_file(segment_metadata_path)
+        print(f"Loaded {len(segments)} segments from {segment_metadata_path}")
+
+        # Create a folium map centered around Oslo
+        m = folium.Map(location=[59.91, 10.75], zoom_start=12)
+
+        # Add each segment to the map
+        for _, segment in segments.iterrows():
+            if segment.geometry and segment.geometry.geom_type == "LineString":
+                folium.PolyLine(
+                    locations=[(coord[1], coord[0]) for coord in segment.geometry.coords],
+                    color="blue",
+                    weight=2,
+                    opacity=0.7,
+                    tooltip=segment.get("name", "Segment"),
+                ).add_to(m)
+
+        # Save and display the map
+        map_path = "segments_map.html"
+        m.save(map_path)
+        print(
+            f"Map saved to {os.path.abspath(map_path)}. "
+            "Opening the map in your default browser..."
+        )
+        webbrowser.open("file://" + os.path.abspath(map_path))
+    else:
+        print(f"No segment data found at {segment_metadata_path}.")
+
+
+
 if __name__ == "__main__":
     from locations import locations
 
-    token = get_token()
     example = locations["oslo"]
 
     segments = explore_segments(example["bounds"]).get("segments", None)
 
     if segments:
-        linestring_points = parse_segments_points(segments)
-        store_segments(segments, linestring_points)
+        store_segments(segments)
+
+    show_segments()
 
