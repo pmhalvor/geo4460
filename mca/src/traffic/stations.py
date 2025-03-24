@@ -3,8 +3,8 @@ import pandas as pd
 import json
 from shapely.geometry import Point
 
-DAY_TRAFFIC_PATH = "mca/data/traffic/all-oslo-bikes-929776236_day_20240101T0000_20250101T0000.csv"
-HOUR_TRAFFIC_PATH = "mca/data/traffic/all-oslo-bikes-929776236_hour_20240401T0000_20240501T0000.csv"
+DAY_TRAFFIC_PATH = "mca/data/traffic/all-oslo-bikes-day_20240101T0000_20250101T0000.csv"
+HOUR_TRAFFIC_PATH = "mca/data/traffic/all-oslo-bikes-hour_20240401T0000_20240501T0000.csv"
 OSLO_STATION_SHAPEFILE_PATH = "mca/data/traffic/oslo_stations.shp"
 ROAD_CATEGORY_IDS = [
     "e", # European
