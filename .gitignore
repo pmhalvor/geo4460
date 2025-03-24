@@ -4,7 +4,9 @@
 uv.lock
 .DS_Store
 
-
+# python
+__pycache__/
+*.pyc
 
 # project specific
 downloads/
@@ -12,5 +14,7 @@ downloads/
 */data/
 #*.pptx
 
-*credentials*
+# mca
+## strava 
 *token*
+.env
