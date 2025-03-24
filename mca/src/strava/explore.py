@@ -1,5 +1,7 @@
 import requests
 import geopandas as gpd
+import os
+import pandas as pd
 import polyline
 
 from shapely.geometry import LineString
@@ -8,6 +10,8 @@ from authorize import get_token
 
 # ensure valid token is present
 get_token()
+
+SEGMENT_GEOJSON_PATH = "mca/data/segments_oslo.geojson"
 
 
 def explore_segments(
@@ -64,39 +68,59 @@ def explore_segments(
         return None
     
 
-def parse_segment_points(segment):
+def parse_segments_points(segments):
     """
-    Parse a segment from the Strava API response.
+    Convert encoded polyline points to LineString objects.
     """
-    
-    decoded_points = polyline.decode(segment["points"])
+    all_points = []
+    for segment in segments:
+        # print(f"Segment: {segment['name']}", segment["points"])
+        decoded_points = polyline.decode(segment["points"])
+        all_points.append(LineString(decoded_points))
 
-    return LineString(decoded_points)
+    return all_points
+
+
+def update_geojson(gdf, segment_geojson_path=SEGMENT_GEOJSON_PATH):
+    """
+    Update the geojson file with the new data.
+    """
+    print(f"New ids to store: {gdf.id.values}")
+
+    if os.path.exists(segment_geojson_path):
+        previous = gpd.read_file(segment_geojson_path)
+        print(f"Previous ids: {previous.id.values}")
+        
+        combined = gpd.GeoDataFrame(pd.concat([previous, gdf], ignore_index=True))
+        combined.drop_duplicates(subset="id", inplace=True)
+    else:
+        combined = gdf
+
+    print(f"Updated ids: {combined.id.values}")
+    
+    combined.to_file(segment_geojson_path, driver="GeoJSON")
+    print(f"GeoJSON file {segment_geojson_path} updated.")
+
+
+def store_segments(segments, linestring_points):
+    """
+    Store the segments in a geojson file.
+    """
+    gdf = gpd.GeoDataFrame(data=segments, geometry=linestring_points)
+
+    update_geojson(gdf)
+    print("Segments stored in geojson file.")
+
 
 if __name__ == "__main__":
     from locations import locations
 
     token = get_token()
-    example = locations["ring2"]
+    example = locations["e18"]
 
-    all_segments = explore_segments(example["bounds"])
-    all_points = []
+    segments = explore_segments(example["bounds"]).get("segments", None)
 
-    if all_segments:
-        print(f"Found segments around {example['name']}:\n")
-        for i, segment in enumerate(all_segments['segments']):
-            print(f"Segment {i+1}:")
-            for key, value in segment.items():
-                print(f"{key}: {value}")
-            print("-"*50)
+    if segments:
+        linestring_points = parse_segments_points(segments)
+        store_segments(segments, linestring_points)
 
-            segment_points = parse_segment_points(segment)
-            all_points.append(segment_points)
-
-    else:
-        print("Failed to explore segments.")
-
-    # save all points to a GeoDataFrame
-    gdf = gpd.GeoDataFrame(data=all_segments, geometry=all_points)
-    # append to the existing file
-    gdf.to_file("segments.geojson", driver="GeoJSON")
