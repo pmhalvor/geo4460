@@ -7,7 +7,7 @@ from strava.locations import locations
 from traffic.stations import get_oslo_stations
 
 
-def km_to_degree_at_latitude(km, latitude):
+def calculate_km_to_degree_at_latitude(km, latitude):
     """Convert kilometers to degrees at a given latitude"""
     # 1 degree of latitude is approximately 111.32 km
     latitude_degree = km / 111.32
@@ -26,8 +26,8 @@ def create_bounds_around_point(point, areas_km2=[1, 2, 5]):
     for area in areas_km2:
         side_length = np.sqrt(area)
         
-        lat_offset, lon_offset = km_to_degree_at_latitude(side_length/2, lat)
-        
+        lat_offset, lon_offset = calculate_km_to_degree_at_latitude(side_length/2, lat)
+
         # Create bounds [min_lat, min_lng, max_lat, max_lng]
         bounds = [
             lat - lat_offset,  # min_lat
@@ -72,8 +72,11 @@ if __name__ == "__main__":
     oslo_bounds = locations["oslo"]["bounds"]
     oslo_segments = explore_segments(oslo_bounds).get("segments", None)
 
-    segments = explore_segments_with_multiple_bounds(oslo_stations.head(2), area_sizes=[1, 2, 3, 5])
+    segments = explore_segments_with_multiple_bounds(oslo_stations.head(2), area_sizes=[3, 5, 10])
     store_segments(segments)
-    print(f"Nice exploring! 🔎 Found {len(segments)} new segments!")
+    print(
+        f"Nice exploring! 🔎"
+        f" Found {len(segments)} new segments!"
+    )
 
 
