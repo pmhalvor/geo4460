@@ -12,7 +12,7 @@ from authorize import get_token
 get_token()
 
 
-SEGMENT_SHAPEFILE_PATH = "mca/data/segments/segments_oslo_25833.shp"
+SEGMENT_SHAPEFILE_PATH = "mca/data/segments/segments_oslo_4258.shp"
 SEGMENT_METADATA_PATH = "mca/data/segments/segments_oslo.geojson"
 
 
@@ -109,8 +109,8 @@ def update_geodata(
 
     # isolate only the LineString and ids
     points_gdf = gdf[["id", "geometry"]]
-    points_gdf_25833 = points_gdf.to_crs(epsg=25833)
-    points_gdf_25833.to_file(segment_shapefile_path, driver="ESRI Shapefile")
+    points_gdf_4258 = points_gdf.to_crs(epsg=4258)
+    points_gdf_4258.to_file(segment_shapefile_path, driver="ESRI Shapefile")
 
 
 def store_segments(segments, linestring_points):
