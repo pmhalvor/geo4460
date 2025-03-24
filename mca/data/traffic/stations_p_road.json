@@ -1,0 +1,234 @@
+{
+  "data": {
+    "trafficRegistrationPoints": [
+      {
+        "id": "55574B553973",
+        "name": "Sandskogan fortau",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 63.473806,
+              "lon": 10.928924
+            }
+          }
+        }
+      },
+      {
+        "id": "15287B2124175",
+        "name": "Vestsiden skole ",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 59.144867,
+              "lon": 9.63708
+            }
+          }
+        }
+      },
+      {
+        "id": "72980V3144536",
+        "name": "ENDELAUSMARKA-LYSEPARKEN",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 60.215883,
+              "lon": 5.422403
+            }
+          }
+        }
+      },
+      {
+        "id": "60437B2369975",
+        "name": "Elvadalen Sør - Sykkel",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 62.14332,
+              "lon": 6.074774
+            }
+          }
+        }
+      },
+      {
+        "id": "13611V578646",
+        "name": "Hjellebotn",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 64.110197,
+              "lon": 11.30913
+            }
+          }
+        }
+      },
+      {
+        "id": "14253V227050",
+        "name": "Olsvika ved SVV",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 62.472992,
+              "lon": 6.361206
+            }
+          }
+        }
+      },
+      {
+        "id": "41809V2037323",
+        "name": "Tronåsen",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 58.440085,
+              "lon": 6.611302
+            }
+          }
+        }
+      },
+      {
+        "id": "80975V1006686",
+        "name": "TS- Heimtungvegen",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 61.100434,
+              "lon": 10.425229
+            }
+          }
+        }
+      },
+      {
+        "id": "04987V1030718",
+        "name": "TS-GranervegenxFv246",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 60.649817,
+              "lon": 10.736945
+            }
+          }
+        }
+      },
+      {
+        "id": "89407V2008119",
+        "name": "TS-Grønstad x Fv2420",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 60.959918,
+              "lon": 10.572399
+            }
+          }
+        }
+      },
+      {
+        "id": "21191V3109528",
+        "name": "Nedre Vist",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 63.963654,
+              "lon": 11.413049
+            }
+          }
+        }
+      },
+      {
+        "id": "13590V1009867",
+        "name": "Feil måling",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 60.963063,
+              "lon": 10.605016
+            }
+          }
+        }
+      },
+      {
+        "id": "62236V2547504",
+        "name": "Lygnasæter",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 60.447202,
+              "lon": 10.643561
+            }
+          }
+        }
+      },
+      {
+        "id": "86637V697019",
+        "name": "Feil",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 62.104815,
+              "lon": 10.214067
+            }
+          }
+        }
+      },
+      {
+        "id": "62697V380573",
+        "name": "Test Nordfjordeid 2",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 61.903159,
+              "lon": 5.994941
+            }
+          }
+        }
+      },
+      {
+        "id": "32180V380573",
+        "name": "Test Nordfjordeid",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 61.902853,
+              "lon": 5.994967
+            }
+          }
+        }
+      },
+      {
+        "id": "15890V861190",
+        "name": "Vågan",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 67.299243,
+              "lon": 14.857255
+            }
+          }
+        }
+      },
+      {
+        "id": "12742V861190",
+        "name": "Vågan",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 67.298969,
+              "lon": 14.857098
+            }
+          }
+        }
+      },
+      {
+        "id": "90179V171442",
+        "name": "forkast",
+        "location": {
+          "coordinates": {
+            "latLon": {
+              "lat": 59.737043,
+              "lon": 10.35419
+            }
+          }
+        }
+      }
+    ]
+  }
+}
