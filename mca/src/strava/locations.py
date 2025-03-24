@@ -87,3 +87,16 @@ e18 = {
         10.779,
     ]
 }
+
+
+# all locations
+locations = {
+    "filipstad": filipstad,
+    "bygdøy": bygdøy,
+    "holmenkollen": holmenkollen,
+    "tryvann": tryvann,
+    "barcode": barcode,
+    "ekeberg": ekeberg,
+    "groruddalen": groruddalen,
+    "e18": e18,
+}

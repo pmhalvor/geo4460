@@ -48,7 +48,7 @@ def explore_segments(
     # manually parse params as query str (for strava api specific formatting)
     params = "&".join([f"{k}={v}" for k, v in params.items()])
     url = f"{url}?{params}".replace(" ", "").replace("[", "").replace("]", "")
-    print("Searching:", url)
+    print(f"Searching: {url} ... \n")
 
     response = requests.get(url) # no need for header
 
@@ -60,15 +60,15 @@ def explore_segments(
     
 
 if __name__ == "__main__":
-    from locations import filipstad
+    from locations import locations
 
     token = get_token()
+    filipstad = locations["filipstad"]
 
-    segments = explore_segments(filipstad)
-    
+    segments = explore_segments(filipstad["bounds"])
+
     if segments:
-        print("Found segments:")
-        print(segments['segments'])
+        print(f"Found segments around {filipstad['name']}:\n")
         for i, segment in enumerate(segments['segments']):
             print(f"Segment {i+1}:")
             for key, value in segment.items():
