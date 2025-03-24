@@ -3,37 +3,51 @@ import pandas as pd
 import json
 from shapely.geometry import Point
 
-ALL_STATIONS_PATH = "mca/data/traffic/all_stations.json"
 DAY_TRAFFIC_PATH = "mca/data/traffic/all-oslo-bikes-929776236_day_20240101T0000_20250101T0000.csv"
 HOUR_TRAFFIC_PATH = "mca/data/traffic/all-oslo-bikes-929776236_hour_20240401T0000_20240501T0000.csv"
 OSLO_STATION_SHAPEFILE_PATH = "mca/data/traffic/oslo_stations.shp"
+ROAD_CATEGORY_IDS = [
+    "e", # European
+    "r", # National
+    "f", # County
+    "k", # Municipal
+    "p", # Private
+]
+STATIONS_PATH_TEMPLATE = "mca/data/traffic/stations_{id}_road.json"
+
 
 def get_stations_gdf():
-    with open(ALL_STATIONS_PATH) as f:
-        all_stations = json.load(f)
+    df = None
 
-    assert list(all_stations.keys()) == ["data"]
-    assert list(all_stations["data"].keys()) == ["trafficRegistrationPoints"]
-    assert (
-        list(all_stations["data"]["trafficRegistrationPoints"][0].keys()) 
-        == 
-        ['id', 'name', 'location']
-    )
+    for road_id in ROAD_CATEGORY_IDS:
+        with open(STATIONS_PATH_TEMPLATE.format(id=road_id)) as f:
+            stations = json.load(f)
 
-    # Create a DataFrame
-    df = pd.DataFrame(all_stations["data"]["trafficRegistrationPoints"])
+            assert list(stations.keys()) == ["data"]
+            assert list(stations["data"].keys()) == ["trafficRegistrationPoints"]
+            assert (
+                list(stations["data"]["trafficRegistrationPoints"][0].keys()) 
+                == 
+                ['id', 'name', 'location']
+            )
 
-    # Convert location to geometry
+        if df is None:
+            df = pd.DataFrame(stations["data"]["trafficRegistrationPoints"])
+        else:
+            df = pd.concat(
+                [
+                    df, 
+                    pd.DataFrame(stations["data"]["trafficRegistrationPoints"])
+                ]
+            )
+
     def loc_to_point(loc):
         latLon = loc['coordinates']['latLon']
         return Point(latLon['lon'], latLon['lat'])
     
-    df['geometry'] = df['location'].apply(loc_to_point)
+    df['points'] = df['location'].apply(loc_to_point)
 
-    # Convert to GeoDataFrame
-    gdf = gpd.GeoDataFrame(df, geometry='geometry', crs="EPSG:4326")
-
-    return gdf
+    return gpd.GeoDataFrame(df, geometry='points', crs="EPSG:4326")
 
 
 def get_traffic_df(interval:str = "day"):
@@ -50,12 +64,11 @@ def get_traffic_df(interval:str = "day"):
 
     return df
 
+
 if __name__ == "__main__":
-    # Convert to GeoDataFrame
     stations = get_stations_gdf()
     print(stations.head())
 
-    # Load traffic data
     day_traffic_df = get_traffic_df(interval="day")
     print(day_traffic_df.head())
     hour_traffic_df = get_traffic_df(interval="hour")
