@@ -12,8 +12,8 @@ from authorize import get_token
 get_token()
 
 
-SEGMENT_SHAPEFILE_PATH = "mca/data/segments/segments_oslo.shp"
-SEGMENT_METADATA_PATH = "mca/data/segments/segments_oslo.geojson"
+SEGMENT_SHAPEFILE_PATH = "mca/data/segments/segments_oslo_.shp"
+SEGMENT_METADATA_PATH = "mca/data/segments/segments_oslo_.geojson"
 
 
 def explore_segments(
@@ -97,7 +97,7 @@ def update_geodata(
         previous = gpd.read_file(segment_metadata_path)
         print(f"{len(previous.id.values)} previous ids loaded")
         
-        combined = gpd.GeoDataFrame(pd.concat([previous, gdf], ignore_index=True), crs=previous.crs)
+        combined = gpd.GeoDataFrame(pd.concat([previous, gdf], ignore_index=True), crs="EPSG:25833")
         combined.drop_duplicates(subset="id", inplace=True)
     else:
         combined = gdf
@@ -116,7 +116,7 @@ def store_segments(segments, linestring_points):
     """
     Store the segments in a geodata file.
     """
-    gdf = gpd.GeoDataFrame(data=segments, geometry=linestring_points, crs="EPSG:4326")
+    gdf = gpd.GeoDataFrame(data=segments, geometry=linestring_points, crs="EPSG:25833")
 
     update_geodata(gdf)
     print("Segments stored in geodata file.")
