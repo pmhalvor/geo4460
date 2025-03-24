@@ -127,7 +127,7 @@ if __name__ == "__main__":
     from locations import locations
 
     token = get_token()
-    example = locations["e18"]
+    example = locations["oslo"]
 
     segments = explore_segments(example["bounds"]).get("segments", None)
 
