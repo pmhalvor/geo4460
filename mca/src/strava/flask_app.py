@@ -1,6 +1,4 @@
-import requests
 import os
-import json
 
 from flask import Flask, request
 from dotenv import load_dotenv
