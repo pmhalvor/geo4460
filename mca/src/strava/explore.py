@@ -77,7 +77,7 @@ def parse_segments_points(segments):
     all_points = []
     for segment in segments:
         # print(f"Segment: {segment['name']}", segment["points"])
-        decoded_points = polyline.decode(segment["points"])
+        decoded_points = polyline.decode(segment["points"], geojson=True)
         all_points.append(LineString(decoded_points))
 
     return all_points
@@ -97,18 +97,18 @@ def update_geodata(
         previous = gpd.read_file(segment_metadata_path)
         print(f"{len(previous.id.values)} previous ids loaded")
         
-        combined = gpd.GeoDataFrame(pd.concat([previous, gdf], ignore_index=True), crs="EPSG:4326")
-        combined.drop_duplicates(subset="id", inplace=True)
+        combined_gdf = gpd.GeoDataFrame(pd.concat([previous, gdf], ignore_index=True), crs="EPSG:4326")
+        combined_gdf.drop_duplicates(subset="id", inplace=True)
     else:
-        combined = gdf
+        combined_gdf = gdf
 
-    print(f"{len(combined.id.values)} updated ids")
+    print(f"{len(combined_gdf.id.values)} updated ids")
     
-    combined.to_file(segment_metadata_path, driver="GeoJSON")
+    combined_gdf.to_file(segment_metadata_path, driver="GeoJSON")
     print(f"Segment data file {segment_metadata_path} updated.")
 
     # isolate only the LineString and ids
-    points_gdf = gdf[["id", "geometry"]]
+    points_gdf = combined_gdf[["id", "geometry"]]
     points_gdf_4258 = points_gdf.to_crs(epsg=4258)
     points_gdf_4258.to_file(segment_shapefile_path, driver="ESRI Shapefile")
 
