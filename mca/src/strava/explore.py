@@ -85,18 +85,18 @@ def update_geojson(gdf, segment_geojson_path=SEGMENT_GEOJSON_PATH):
     """
     Update the geojson file with the new data.
     """
-    print(f"New ids to store: {gdf.id.values}")
+    print(f"{len(gdf.id.values)} new ids to store")
 
     if os.path.exists(segment_geojson_path):
         previous = gpd.read_file(segment_geojson_path)
-        print(f"Previous ids: {previous.id.values}")
+        print(f"{len(previous.id.values)} previous ids loaded")
         
-        combined = gpd.GeoDataFrame(pd.concat([previous, gdf], ignore_index=True))
+        combined = gpd.GeoDataFrame(pd.concat([previous, gdf], ignore_index=True), crs=previous.crs)
         combined.drop_duplicates(subset="id", inplace=True)
     else:
         combined = gdf
 
-    print(f"Updated ids: {combined.id.values}")
+    print(f"{len(combined.id.values)} updated ids")
     
     combined.to_file(segment_geojson_path, driver="GeoJSON")
     print(f"GeoJSON file {segment_geojson_path} updated.")
@@ -106,7 +106,7 @@ def store_segments(segments, linestring_points):
     """
     Store the segments in a geojson file.
     """
-    gdf = gpd.GeoDataFrame(data=segments, geometry=linestring_points)
+    gdf = gpd.GeoDataFrame(data=segments, geometry=linestring_points, crs="EPSG:4326")
 
     update_geojson(gdf)
     print("Segments stored in geojson file.")
