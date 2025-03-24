@@ -5,7 +5,7 @@ import pandas as pd
 import polyline
 
 from shapely.geometry import LineString
-from authorize import get_token
+from strava.authorize import get_token
 import folium
 import webbrowser
 
@@ -163,7 +163,7 @@ def show_segments(segment_metadata_path=SEGMENT_METADATA_PATH):
 
 
 if __name__ == "__main__":
-    from locations import locations
+    from strava.locations import locations
 
     example = locations["oslo"]
 

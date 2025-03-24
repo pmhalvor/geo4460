@@ -6,6 +6,7 @@ from shapely.geometry import Point
 DAY_TRAFFIC_PATH = "mca/data/traffic/all-oslo-bikes-day_20240101T0000_20250101T0000.csv"
 HOUR_TRAFFIC_PATH = "mca/data/traffic/all-oslo-bikes-hour_20240401T0000_20240501T0000.csv"
 OSLO_STATION_SHAPEFILE_PATH = "mca/data/traffic/oslo_stations.shp"
+OSLO_STATION_GEOJSON_PATH = "mca/data/traffic/oslo_stations.geojson"
 ROAD_CATEGORY_IDS = [
     "e", # European
     "r", # National
@@ -63,6 +64,26 @@ def get_traffic_df(interval:str = "day"):
     df = pd.read_csv(datapath, encoding="ISO-8859-1", header=0, sep=";", dtype='unicode')
 
     return df
+
+
+def get_oslo_stations():
+    stations_df = get_stations_gdf()
+    oslo_station_ids = get_traffic_df().Trafikkregistreringspunkt.unique()
+    return stations_df[stations_df.id.isin(oslo_station_ids)]
+
+
+def get_oslo_traffic(interval:str = "day"):
+    stations_df = get_oslo_stations()
+    traffic_df = get_traffic_df(interval=interval)
+
+    return (
+        traffic_df.merge(
+            stations_df, 
+            left_on="Trafikkregistreringspunkt", 
+            right_on="id", 
+            how="left"
+        )
+    )
 
 
 if __name__ == "__main__":
