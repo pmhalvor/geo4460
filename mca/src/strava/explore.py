@@ -11,7 +11,9 @@ from authorize import get_token
 # ensure valid token is present
 get_token()
 
-SEGMENT_GEOJSON_PATH = "mca/data/segments_oslo.geojson"
+
+SEGMENT_SHAPEFILE_PATH = "mca/data/segments/segments_oslo.shp"
+SEGMENT_METADATA_PATH = "mca/data/segments/segments_oslo.geojson"
 
 
 def explore_segments(
@@ -81,14 +83,18 @@ def parse_segments_points(segments):
     return all_points
 
 
-def update_geojson(gdf, segment_geojson_path=SEGMENT_GEOJSON_PATH):
+def update_geodata(
+        gdf, 
+        segment_shapefile_path=SEGMENT_SHAPEFILE_PATH,
+        segment_metadata_path=SEGMENT_METADATA_PATH,
+    ):
     """
-    Update the geojson file with the new data.
+    Add new data to previously stored geo data.
     """
     print(f"{len(gdf.id.values)} new ids to store")
 
-    if os.path.exists(segment_geojson_path):
-        previous = gpd.read_file(segment_geojson_path)
+    if os.path.exists(segment_metadata_path):
+        previous = gpd.read_file(segment_metadata_path)
         print(f"{len(previous.id.values)} previous ids loaded")
         
         combined = gpd.GeoDataFrame(pd.concat([previous, gdf], ignore_index=True), crs=previous.crs)
@@ -98,18 +104,22 @@ def update_geojson(gdf, segment_geojson_path=SEGMENT_GEOJSON_PATH):
 
     print(f"{len(combined.id.values)} updated ids")
     
-    combined.to_file(segment_geojson_path, driver="GeoJSON")
-    print(f"GeoJSON file {segment_geojson_path} updated.")
+    combined.to_file(segment_metadata_path, driver="GeoJSON")
+    print(f"Segment data file {segment_metadata_path} updated.")
+
+    # isolate only the LineString and ids
+    points_gdf = gdf[["id", "geometry"]]
+    points_gdf.to_file(segment_shapefile_path, driver="ESRI Shapefile")
 
 
 def store_segments(segments, linestring_points):
     """
-    Store the segments in a geojson file.
+    Store the segments in a geodata file.
     """
     gdf = gpd.GeoDataFrame(data=segments, geometry=linestring_points, crs="EPSG:4326")
 
-    update_geojson(gdf)
-    print("Segments stored in geojson file.")
+    update_geodata(gdf)
+    print("Segments stored in geodata file.")
 
 
 if __name__ == "__main__":
