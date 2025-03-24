@@ -80,7 +80,37 @@ locations = {
             10.7825,
         ]
     },
-    "oslo": {
+    "griffenfeldtsgate": {
+        "name": "Griffenfeldtsgate",
+        "bounds": [
+            59.9253556102245,
+            10.733905295904663,
+            59.93671012314178,
+            10.776545253217193,
+        ]
+    },
+    "majorstuen": {
+        "name": "Majorstuen",
+        "bounds": [
+            59.937,
+            10.690,
+            59.919,
+            10.734,
+        ]
+    },
+    "frognerparken": {
+        "name": "Frognerparken",
+        "bounds": [
+            59.92266606115345,
+            10.70386777617938,
+            59.929499268779125,
+            10.716781298222372,
+        ]
+    },
+
+    
+    
+    "oslo": { # whole oslo city
         "name": "Oslo",
         "bounds": [ 
             59.8181886681663,   
