@@ -1,5 +1,10 @@
 import requests
+import geopandas as gpd
+import polyline
+
+from shapely.geometry import LineString
 from authorize import get_token
+
 
 # ensure valid token is present
 get_token()
@@ -59,20 +64,39 @@ def explore_segments(
         return None
     
 
+def parse_segment_points(segment):
+    """
+    Parse a segment from the Strava API response.
+    """
+    
+    decoded_points = polyline.decode(segment["points"])
+
+    return LineString(decoded_points)
+
 if __name__ == "__main__":
     from locations import locations
 
     token = get_token()
-    filipstad = locations["filipstad"]
+    example = locations["ring2"]
 
-    segments = explore_segments(filipstad["bounds"])
+    all_segments = explore_segments(example["bounds"])
+    all_points = []
 
-    if segments:
-        print(f"Found segments around {filipstad['name']}:\n")
-        for i, segment in enumerate(segments['segments']):
+    if all_segments:
+        print(f"Found segments around {example['name']}:\n")
+        for i, segment in enumerate(all_segments['segments']):
             print(f"Segment {i+1}:")
             for key, value in segment.items():
                 print(f"{key}: {value}")
             print("-"*50)
+
+            segment_points = parse_segment_points(segment)
+            all_points.append(segment_points)
+
     else:
         print("Failed to explore segments.")
+
+    # save all points to a GeoDataFrame
+    gdf = gpd.GeoDataFrame(data=all_segments, geometry=all_points)
+    # append to the existing file
+    gdf.to_file("segments.geojson", driver="GeoJSON")
