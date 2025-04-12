@@ -161,16 +161,49 @@ def show_segments(segment_metadata_path=SEGMENT_METADATA_PATH):
         print(f"No segment data found at {segment_metadata_path}.")
 
 
+def get_segment_details(segment):
+    """
+    Get segment details using the Strava API.
+    https://developers.strava.com/docs/reference/#api-Segments-getSegmentById
+    """
+    url = f"https://www.strava.com/api/v3/segments/{segment['id']}"
+    token = get_token()
+
+    params = {
+        "access_token": token,
+    }
+
+    response = requests.get(url, params=params)
+
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"Failed to get segment details: {response.status_code} {response.text}")
+        return None
+
 
 if __name__ == "__main__":
-    from locations import locations
+    # from locations import locations
 
-    example = locations["frognerparken"]
+    # example = locations["frognerparken"]
 
-    segments = explore_segments(example["bounds"]).get("segments", None)
+    # segments = explore_segments(example["bounds"]).get("segments", None)
 
-    if segments:
-        store_segments(segments)
+    # if segments:
+    #     store_segments(segments)
 
-    show_segments()
+    # show_segments()
+
+
+    if os.path.exists(SEGMENT_METADATA_PATH):
+        segments = gpd.read_file(SEGMENT_METADATA_PATH)
+
+    for i, segment in enumerate(segments.iloc[:5].iterrows()):
+        print(f"{i+1}. {segment[1].name}")
+        print(segment)
+        segment_details = get_segment_details(segment[1])
+        print(segment_details)
+        print(segment_details.keys())
+        print("\n")
+
 
