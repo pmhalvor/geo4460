@@ -249,8 +249,123 @@ if __name__ == "__main__":
 
     print("\n--- DEM Generation Complete ---")
 
-    # --- Quality Assessment (to be added) ---
+    # --- Quality Assessment (RMSE) ---
+    print("\n3. Quality Assessment (RMSE)...")
+    
+    # Define input paths
+    points_shp_path = os.path.join(OUTPUT_DIR, POINTS_SHP)
+    points_extracted_path = os.path.join(OUTPUT_DIR, POINTS_EXTRACTED_SHP)
+    rmse_csv_path = os.path.join(OUTPUT_DIR, RMSE_CSV)
+
+    # Check if required inputs exist
+    if not os.path.exists(dem_interp_path):
+        print(f"Error: Interpolated DEM not found ({dem_interp_path}). Skipping RMSE calculation.")
+    elif not os.path.exists(dem_topo_path):
+        print(f"Error: Topo DEM not found ({dem_topo_path}). Skipping RMSE calculation.")
+    elif not os.path.exists(points_shp_path):
+        print(f"Error: Points shapefile not found ({points_shp_path}). Skipping RMSE calculation.")
+    elif POINT_ELEV_FIELD == "UNKNOWN_ELEV_FIELD":
+         print(f"Error: Unknown elevation field in points layer. Skipping RMSE calculation.")
+    else:
+        try:
+            # Extract values from the Interpolated DEM
+            print(f"  - Extracting values from Interpolated DEM ({DEM_INTERP_TIF})...")
+            wbt.extract_raster_values_at_points(
+                rasters=dem_interp_path,
+                points=points_shp_path,
+                output=points_extracted_path # Output will be a shapefile with new field(s)
+                # out_text=False # Default is shapefile output
+            )
+            # Rename the default output field ('VALUE') to something specific
+            points_extracted_gdf = gpd.read_file(points_extracted_path)
+            if 'VALUE' in points_extracted_gdf.columns:
+                 points_extracted_gdf.rename(columns={'VALUE': 'DEM_Interp'}, inplace=True)
+                 print(f"    - Renamed extracted value column to 'DEM_Interp'")
+            else:
+                 print(f"    - Warning: Could not find default 'VALUE' column after extraction from {DEM_INTERP_TIF}.")
+                 # Look for the raster filename as column name (WBT might do this)
+                 raster_col_name = os.path.splitext(DEM_INTERP_TIF)[0]
+                 if raster_col_name in points_extracted_gdf.columns:
+                     points_extracted_gdf.rename(columns={raster_col_name: 'DEM_Interp'}, inplace=True)
+                     print(f"    - Found column '{raster_col_name}' and renamed to 'DEM_Interp'")
+                 else:
+                     print(f"    - Available columns: {points_extracted_gdf.columns.tolist()}")
+
+
+            # Extract values from the Topo-to-Raster DEM
+            # We need to run the tool again on the *original* points shapefile
+            # or add the second raster to the first call if WBT supports multiple rasters.
+            # Let's run it again for clarity, saving to a temp file then merging.
+            # Simpler approach: Run on the already modified shapefile, adding another column.
+            print(f"  - Extracting values from Topo DEM ({DEM_TOPO_TIF})...")
+            # Save the intermediate result before adding the next column
+            points_extracted_gdf.to_file(points_extracted_path, driver='ESRI Shapefile') 
+            
+            wbt.extract_raster_values_at_points(
+                rasters=dem_topo_path,
+                points=points_extracted_path, # Use the file with the first extracted value
+                output=points_extracted_path, # Overwrite with the added column
+                # out_text=False
+            )
+            # Reload and rename the second extracted column
+            points_extracted_gdf = gpd.read_file(points_extracted_path)
+            if 'VALUE' in points_extracted_gdf.columns and 'DEM_Interp' in points_extracted_gdf.columns:
+                 points_extracted_gdf.rename(columns={'VALUE': 'DEM_Topo'}, inplace=True)
+                 print(f"    - Renamed second extracted value column to 'DEM_Topo'")
+            else:
+                 # Check if the column name matches the raster name again
+                 raster_col_name_topo = os.path.splitext(DEM_TOPO_TIF)[0]
+                 if raster_col_name_topo in points_extracted_gdf.columns and 'DEM_Interp' in points_extracted_gdf.columns:
+                     points_extracted_gdf.rename(columns={raster_col_name_topo: 'DEM_Topo'}, inplace=True)
+                     print(f"    - Found column '{raster_col_name_topo}' and renamed to 'DEM_Topo'")
+                 else:
+                     print(f"    - Warning: Could not find expected column after extraction from {DEM_TOPO_TIF}.")
+                     print(f"    - Available columns: {points_extracted_gdf.columns.tolist()}")
+
+
+            print(f"  - Extracted values saved to: {points_extracted_path}")
+
+            # Calculate RMSE
+            print("  - Calculating RMSE...")
+            # Ensure columns exist before calculation
+            required_cols = [POINT_ELEV_FIELD, 'DEM_Interp', 'DEM_Topo']
+            if all(col in points_extracted_gdf.columns for col in required_cols):
+                # Drop rows where DEM extraction might have failed (NoData values)
+                points_extracted_gdf.replace([np.inf, -np.inf], np.nan, inplace=True)
+                points_valid_gdf = points_extracted_gdf.dropna(subset=required_cols)
+                
+                n_points = len(points_valid_gdf)
+                if n_points > 0:
+                    measured = points_valid_gdf[POINT_ELEV_FIELD]
+                    interp_dem = points_valid_gdf['DEM_Interp']
+                    topo_dem = points_valid_gdf['DEM_Topo']
+
+                    rmse_interp = sqrt(mean_squared_error(measured, interp_dem))
+                    rmse_topo = sqrt(mean_squared_error(measured, topo_dem))
+
+                    print(f"    - RMSE (Interpolated DEM vs Points): {rmse_interp:.3f} (using {n_points} points)")
+                    print(f"    - RMSE (Topo DEM vs Points): {rmse_topo:.3f} (using {n_points} points)")
+
+                    # Save results to CSV
+                    rmse_data = {'DEM_Type': ['Interpolated (Natural Neighbour)', 'Topo-to-Raster (ANUDEM)'],
+                                 'RMSE': [rmse_interp, rmse_topo],
+                                 'N_Points': [n_points, n_points]}
+                    rmse_df = pd.DataFrame(rmse_data)
+                    rmse_df.to_csv(rmse_csv_path, index=False)
+                    print(f"    - RMSE results saved to: {rmse_csv_path}")
+                else:
+                    print("    - Error: No valid points found after dropping NaN/Inf values. Cannot calculate RMSE.")
+
+            else:
+                print(f"    - Error: Missing one or more required columns for RMSE calculation: {required_cols}")
+                print(f"    - Available columns: {points_extracted_gdf.columns.tolist()}")
+
+
+        except Exception as e:
+            print(f"Error during Quality Assessment: {e}")
+
+    print("\n--- Quality Assessment Complete ---")
 
     # --- Further Analysis (to be added) ---
 
-    print("\n--- Workflow Script Updated (DEM Gen Added) ---")
+    print("\n--- Workflow Script Updated (RMSE Added) ---")
