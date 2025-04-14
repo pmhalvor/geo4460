@@ -16,6 +16,16 @@ downloads/
 .hide
 #*.pptx
 
+# datafiles
+*.cpg
+*.dbf
+*.prj
+*.shx
+*.shp
+
+
+
+
 # mca
 ## strava 
 *token*
