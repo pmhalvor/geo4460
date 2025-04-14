@@ -187,28 +187,48 @@ if __name__ == "__main__":
     
     # --- Method 1: Interpolation (Approximation of TIN-to-Raster) ---
     print("  - Method 1: Natural Neighbour Interpolation from Contours...")
+    # Intermediate files for creating points with elevation values
+    contour_raster_path = os.path.join(OUTPUT_DIR, "contour_raster_temp.tif") 
+    contour_points_with_value_path = os.path.join(OUTPUT_DIR, "contour_points_with_value.shp") 
+    
     try:
-        # Convert contour lines to points (vertices) for interpolation
-        print("    - Extracting nodes (vertices) from contours...")
-        wbt.extract_nodes( 
-            i=contour_shp_path, 
-            output=contour_points_path
-            # densify=True # Parameter not available for extract_nodes
+        # Convert contour lines to raster, burning HOEYDE attribute
+        print(f"    - Converting contour lines to raster ({os.path.basename(contour_raster_path)})...")
+        wbt.vector_lines_to_raster(
+            i=contour_shp_path,
+            output=contour_raster_path,
+            field=ELEV_FIELD, # Burn HOEYDE value
+            nodata=-9999.0, # Assign a NoData value
+            cell_size=OUTPUT_CELL_SIZE, # Use target cell size
+            base=None # Let WBT determine extent from input lines
         )
-        print(f"    - Contour nodes saved to: {contour_points_path}")
+        print(f"    - Contour raster saved to: {contour_raster_path}")
 
-        # Interpolate using Natural Neighbour
+        # Convert contour raster back to points
+        print(f"    - Converting contour raster to points ({os.path.basename(contour_points_with_value_path)})...")
+        wbt.raster_to_vector_points(
+            i=contour_raster_path,
+            output=contour_points_with_value_path
+        )
+        print(f"    - Points with elevation saved to: {contour_points_with_value_path}")
+        
+        # Check if points file was created
+        if not os.path.exists(contour_points_with_value_path):
+            raise FileNotFoundError(f"Points file with values not created: {contour_points_with_value_path}")
+
+        # Interpolate using Natural Neighbour from the generated points
         print("    - Running Natural Neighbour Interpolation...")
+        # The elevation value is now likely in the 'VALUE' field of the points shapefile
         wbt.natural_neighbour_interpolation(
-            i=contour_points_path,
-            field=ELEV_FIELD,
+            i=contour_points_with_value_path, 
+            field='VALUE', # Use the default field name from raster_to_vector_points
             output=dem_interp_path,
-            cell_size=OUTPUT_CELL_SIZE,
+            cell_size=OUTPUT_CELL_SIZE
             # Use the calculated common extent
-            wd=OUTPUT_DIR # Set working directory for relative paths if needed
+            # wd=OUTPUT_DIR # Removed wd argument as it's not accepted by this tool wrapper
             # extent=[minx, maxx, miny, maxy] # WBT might infer from input points
         )
-        print(f"    - Interpolated DEM saved to: {dem_interp_path}")
+        print(f"    - Interpolated (Natural Neighbour) DEM saved to: {dem_interp_path}")
         
         # Verify output exists
         if not os.path.exists(dem_interp_path):
@@ -219,37 +239,33 @@ if __name__ == "__main__":
         # Consider adding more specific error handling or logging
         # exit() # Optionally exit if this step fails
 
-    # --- Method 2: Topo to Raster (ANUDEM) ---
-    print("\n  - Method 2: Topo to Raster (ANUDEM)...")
+    # --- Method 2: TIN Gridding (Alternative to TopoToRaster/ANUDEM) ---
+    # Note: TopoToRaster tool (ANUDEM equivalent) not found in this whitebox wrapper version. Using TIN Gridding instead.
+    print("\n  - Method 2: TIN Gridding from Contour Points with Values...")
     try:
-        # Ensure contour points exist from previous step
-        if not os.path.exists(contour_points_path):
-             raise FileNotFoundError(f"Contour points file needed for TopoToRaster not found: {contour_points_path}")
+        # Ensure contour points with values exist from previous step
+        if not os.path.exists(contour_points_with_value_path):
+             raise FileNotFoundError(f"Contour points file needed for TIN Gridding not found: {contour_points_with_value_path}")
 
-        print("    - Running Topo to Raster...")
-        wbt.topo_to_raster(
-            points=contour_points_path,
-            field=ELEV_FIELD,
-            streams=river_shp_path, # Input rivers as streams
-            lakes=lake_shp_path,    # Input lakes
-            output=dem_topo_path,
-            cell_size=OUTPUT_CELL_SIZE,
-            # Ensure same extent as the first DEM for comparison
-            # WBT TopoToRaster might not directly take extent, but uses input features.
-            # We might need to clip/resample later if extents differ significantly.
-            # For now, rely on WBT's extent handling based on inputs.
-            # Alternatively, set a base raster:
-            base=dem_interp_path, # Use the first DEM to define grid properties
-            wd=OUTPUT_DIR
+        print("    - Running TIN Gridding...")
+        # Use 'i' for input and 'VALUE' for field based on previous step
+        wbt.tin_gridding( 
+            i=contour_points_with_value_path, # Changed 'points' to 'i'
+            field='VALUE', # Use the 'VALUE' field from the generated points
+            # streams=river_shp_path, # Not supported by tin_gridding
+            # lakes=lake_shp_path,    # Not supported by tin_gridding
+            output=dem_topo_path, # Still save as dem_topo_tif for consistency in subsequent steps
+            resolution=OUTPUT_CELL_SIZE # Use 'resolution' parameter for cell size
+            # base=dem_interp_path # Not supported by tin_gridding
         )
-        print(f"    - Topo-to-Raster DEM saved to: {dem_topo_path}")
+        print(f"    - TIN Gridding DEM saved to: {dem_topo_path}")
         
         # Verify output exists
         if not os.path.exists(dem_topo_path):
-             raise FileNotFoundError(f"Topo-to-Raster DEM file not created: {dem_topo_path}")
+             raise FileNotFoundError(f"TIN Gridding DEM file not created: {dem_topo_path}")
 
     except Exception as e:
-        print(f"Error during Topo to Raster DEM generation: {e}")
+        print(f"Error during TIN Gridding DEM generation: {e}")
         # exit() # Optionally exit
 
     print("\n--- DEM Generation Complete ---")
@@ -273,59 +289,83 @@ if __name__ == "__main__":
          print(f"Error: Unknown elevation field in points layer. Skipping RMSE calculation.")
     else:
         try:
-            # Extract values from the Interpolated DEM
+            # Copy the original points shapefile to the output path first
+            print(f"  - Copying original points shapefile to {points_extracted_path}...")
+            # Need to copy all parts of the shapefile (.shp, .dbf, .shx, .prj etc.)
+            # Easiest way is often to read and write with geopandas
+            points_orig_gdf = gpd.read_file(points_shp_path)
+            points_orig_gdf.to_file(points_extracted_path, driver='ESRI Shapefile')
+            print("    - Copy complete.")
+
+            # Extract values from the Interpolated DEM (modifies points_extracted_path in place)
             print(f"  - Extracting values from Interpolated DEM ({DEM_INTERP_TIF})...")
+            # Removed 'o' parameter - tool modifies the 'points' file directly
             wbt.extract_raster_values_at_points(
-                rasters=dem_interp_path,
-                points=points_shp_path,
-                output=points_extracted_path # Output will be a shapefile with new field(s)
+                inputs=dem_interp_path, 
+                points=points_extracted_path # Use the copied file path
                 # out_text=False # Default is shapefile output
             )
-            # Rename the default output field ('VALUE') to something specific
-            points_extracted_gdf = gpd.read_file(points_extracted_path)
-            if 'VALUE' in points_extracted_gdf.columns:
-                 points_extracted_gdf.rename(columns={'VALUE': 'DEM_Interp'}, inplace=True)
-                 print(f"    - Renamed extracted value column to 'DEM_Interp'")
-            else:
-                 print(f"    - Warning: Could not find default 'VALUE' column after extraction from {DEM_INTERP_TIF}.")
-                 # Look for the raster filename as column name (WBT might do this)
-                 raster_col_name = os.path.splitext(DEM_INTERP_TIF)[0]
-                 if raster_col_name in points_extracted_gdf.columns:
-                     points_extracted_gdf.rename(columns={raster_col_name: 'DEM_Interp'}, inplace=True)
-                     print(f"    - Found column '{raster_col_name}' and renamed to 'DEM_Interp'")
-                 else:
-                     print(f"    - Available columns: {points_extracted_gdf.columns.tolist()}")
-
-
-            # Extract values from the Topo-to-Raster DEM
-            # We need to run the tool again on the *original* points shapefile
-            # or add the second raster to the first call if WBT supports multiple rasters.
-            # Let's run it again for clarity, saving to a temp file then merging.
-            # Simpler approach: Run on the already modified shapefile, adding another column.
-            print(f"  - Extracting values from Topo DEM ({DEM_TOPO_TIF})...")
-            # Save the intermediate result before adding the next column
-            points_extracted_gdf.to_file(points_extracted_path, driver='ESRI Shapefile') 
             
+            # --- Robust column renaming logic ---
+            # Get columns *after* first extraction
+            points_extracted_gdf_after_1 = gpd.read_file(points_extracted_path)
+            cols_after_1 = set(points_extracted_gdf_after_1.columns)
+            # Find the new column added
+            new_col_1 = list(cols_after_1 - set(points_orig_gdf.columns))
+            
+            if len(new_col_1) == 1:
+                added_col_name_1 = new_col_1[0]
+                points_extracted_gdf_after_1.rename(columns={added_col_name_1: 'DEM_Interp'}, inplace=True)
+                print(f"    - Renamed extracted value column '{added_col_name_1}' to 'DEM_Interp'")
+                # Save the renamed file before the next extraction
+                points_extracted_gdf_after_1.to_file(points_extracted_path, driver='ESRI Shapefile')
+            else:
+                print(f"    - Warning: Could not uniquely identify column added by first extraction. Found: {new_col_1}")
+                print(f"    - Available columns: {list(cols_after_1)}")
+                # Attempt to find a likely candidate if logic failed (e.g., 'VALUE1')
+                if 'VALUE1' in cols_after_1:
+                     print("    - Attempting to rename 'VALUE1' to 'DEM_Interp'.")
+                     points_extracted_gdf_after_1.rename(columns={'VALUE1': 'DEM_Interp'}, inplace=True)
+                     points_extracted_gdf_after_1.to_file(points_extracted_path, driver='ESRI Shapefile')
+                # Add more fallback logic if needed, or raise an error
+
+
+            # Extract values from the TIN Gridding DEM (modifies points_extracted_path in place)
+            print(f"  - Extracting values from TIN Gridding DEM ({DEM_TOPO_TIF})...")
+            # Get columns *before* second extraction
+            points_extracted_gdf_before_2 = gpd.read_file(points_extracted_path) # Reload after potential rename
+            cols_before_2 = set(points_extracted_gdf_before_2.columns)
+
+            # Removed 'o' parameter - tool modifies the 'points' file directly
             wbt.extract_raster_values_at_points(
-                rasters=dem_topo_path,
-                points=points_extracted_path, # Use the file with the first extracted value
-                output=points_extracted_path, # Overwrite with the added column
+                inputs=dem_topo_path, 
+                points=points_extracted_path # Use the file already modified by the previous step
                 # out_text=False
             )
-            # Reload and rename the second extracted column
-            points_extracted_gdf = gpd.read_file(points_extracted_path)
-            if 'VALUE' in points_extracted_gdf.columns and 'DEM_Interp' in points_extracted_gdf.columns:
-                 points_extracted_gdf.rename(columns={'VALUE': 'DEM_Topo'}, inplace=True)
-                 print(f"    - Renamed second extracted value column to 'DEM_Topo'")
+
+            # --- Robust column renaming logic for second extraction ---
+            points_extracted_gdf_after_2 = gpd.read_file(points_extracted_path)
+            cols_after_2 = set(points_extracted_gdf_after_2.columns)
+            new_col_2 = list(cols_after_2 - cols_before_2)
+
+            if len(new_col_2) == 1:
+                added_col_name_2 = new_col_2[0]
+                points_extracted_gdf_after_2.rename(columns={added_col_name_2: 'DEM_Topo'}, inplace=True)
+                print(f"    - Renamed second extracted value column '{added_col_name_2}' to 'DEM_Topo'")
             else:
-                 # Check if the column name matches the raster name again
-                 raster_col_name_topo = os.path.splitext(DEM_TOPO_TIF)[0]
-                 if raster_col_name_topo in points_extracted_gdf.columns and 'DEM_Interp' in points_extracted_gdf.columns:
-                     points_extracted_gdf.rename(columns={raster_col_name_topo: 'DEM_Topo'}, inplace=True)
-                     print(f"    - Found column '{raster_col_name_topo}' and renamed to 'DEM_Topo'")
-                 else:
-                     print(f"    - Warning: Could not find expected column after extraction from {DEM_TOPO_TIF}.")
-                     print(f"    - Available columns: {points_extracted_gdf.columns.tolist()}")
+                print(f"    - Warning: Could not uniquely identify column added by second extraction. Found: {new_col_2}")
+                print(f"    - Available columns: {list(cols_after_2)}")
+                 # Attempt to find a likely candidate if logic failed (e.g., 'VALUE1' if it reappeared)
+                if 'VALUE1' in new_col_2: # Check if 'VALUE1' is the *new* column
+                     print("    - Attempting to rename 'VALUE1' to 'DEM_Topo'.")
+                     points_extracted_gdf_after_2.rename(columns={'VALUE1': 'DEM_Topo'}, inplace=True)
+                elif 'VALUE1' in cols_after_2 and 'DEM_Topo' not in cols_after_2: # Check if 'VALUE1' exists but wasn't the new one
+                     print("    - Fallback: Renaming existing 'VALUE1' to 'DEM_Topo'.")
+                     points_extracted_gdf_after_2.rename(columns={'VALUE1': 'DEM_Topo'}, inplace=True)
+
+
+            # Final reload for RMSE calculation
+            points_extracted_gdf = points_extracted_gdf_after_2
 
 
             print(f"  - Extracted values saved to: {points_extracted_path}")
@@ -352,7 +392,7 @@ if __name__ == "__main__":
                     print(f"    - RMSE (Topo DEM vs Points): {rmse_topo:.3f} (using {n_points} points)")
 
                     # Save results to CSV
-                    rmse_data = {'DEM_Type': ['Interpolated (Natural Neighbour)', 'Topo-to-Raster (ANUDEM)'],
+                    rmse_data = {'DEM_Type': ['Interpolated (Natural Neighbour)', 'TIN Gridding'],
                                  'RMSE': [rmse_interp, rmse_topo],
                                  'N_Points': [n_points, n_points]}
                     rmse_df = pd.DataFrame(rmse_data)

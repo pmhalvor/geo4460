@@ -1,0 +1,3 @@
+DEM_Type,RMSE,N_Points
+Interpolated (Natural Neighbour),38.78090007079291,131
+TIN Gridding,38.67387569315873,131
