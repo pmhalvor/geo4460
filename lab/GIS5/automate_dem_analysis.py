@@ -160,11 +160,16 @@ if __name__ == "__main__":
             break
             
     if POINT_ELEV_FIELD is None:
-        print("\nWarning: Could not automatically identify elevation field in points layer.")
-        print(f"Available columns in points: {points_gdf.columns.tolist()}")
-        print("RMSE calculation will fail without the correct field name.")
-        # Set a placeholder, but this needs correction
-        POINT_ELEV_FIELD = "UNKNOWN_ELEV_FIELD" 
+        # Check specifically for 'HOEYDE' as it's likely correct based on output
+        if 'HOEYDE' in points_gdf.columns:
+             POINT_ELEV_FIELD = 'HOEYDE'
+             print(f"\nElevation point field explicitly set to: '{POINT_ELEV_FIELD}'. Sample values: {points_gdf[POINT_ELEV_FIELD].head().tolist()}")
+        else:
+            print("\nWarning: Could not automatically identify elevation field in points layer (tried common names and 'HOEYDE').")
+            print(f"Available columns in points: {points_gdf.columns.tolist()}")
+            print("RMSE calculation will fail without the correct field name.")
+            # Set a placeholder, but this needs correction
+            POINT_ELEV_FIELD = "UNKNOWN_ELEV_FIELD" 
 
 
     # --- DEM Generation ---
@@ -183,14 +188,14 @@ if __name__ == "__main__":
     # --- Method 1: Interpolation (Approximation of TIN-to-Raster) ---
     print("  - Method 1: Natural Neighbour Interpolation from Contours...")
     try:
-        # Convert contour lines to points for interpolation
-        print("    - Converting contours to points...")
-        wbt.vector_lines_to_points(
+        # Convert contour lines to points (vertices) for interpolation
+        print("    - Extracting nodes (vertices) from contours...")
+        wbt.extract_nodes( 
             i=contour_shp_path, 
-            output=contour_points_path, 
-            densify=True # Add points along lines
+            output=contour_points_path
+            # densify=True # Parameter not available for extract_nodes
         )
-        print(f"    - Contour points saved to: {contour_points_path}")
+        print(f"    - Contour nodes saved to: {contour_points_path}")
 
         # Interpolate using Natural Neighbour
         print("    - Running Natural Neighbour Interpolation...")
