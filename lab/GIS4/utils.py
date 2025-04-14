@@ -61,11 +61,11 @@ def preprocess(df: pd.DataFrame) -> pd.DataFrame:
 def process_regression_data(data: dict):
     regression_df = pd.DataFrame(data, columns=['THAW Column', '1st Order', '2nd Order', '3rd Order'])
 
-    regression_df['1st Order'] = regression_df['1st Order'].apply(lambda x: np.round(x, 5))
-    regression_df['2nd Order'] = regression_df['2nd Order'].apply(lambda x: np.round(x, 5))
-    regression_df['3rd Order'] = regression_df['3rd Order'].apply(lambda x: np.round(x, 5))
+    regression_df['1st Order'] = regression_df['1st Order'].apply(lambda x: np.round(x, 4))
+    regression_df['2nd Order'] = regression_df['2nd Order'].apply(lambda x: np.round(x, 4))
+    regression_df['3rd Order'] = regression_df['3rd Order'].apply(lambda x: np.round(x, 4))
 
-    return regression_df
+    return regression_df[["THAW Column", "1st Order", "2nd Order"]].copy()
 
 
 
