@@ -1,7 +1,4 @@
 import geopandas as gpd
-import rasterio
-from rasterio.enums import Resampling
-from rasterio.warp import calculate_default_transform, reproject
 import numpy as np
 import pandas as pd
 from whitebox import WhiteboxTools  # Using WhiteboxTools for interpolation and analysis
