@@ -366,6 +366,80 @@ if __name__ == "__main__":
 
     print("\n--- Quality Assessment Complete ---")
 
-    # --- Further Analysis (to be added) ---
+    # --- Further Analysis ---
+    print("\n4. Further Analysis (Contours, Hillshade, Difference, Slope)...")
 
-    print("\n--- Workflow Script Updated (RMSE Added) ---")
+    # Define output paths
+    contours_interp_path = os.path.join(OUTPUT_DIR, CONTOURS_INTERP_SHP)
+    contours_topo_path = os.path.join(OUTPUT_DIR, CONTOURS_TOPO_SHP)
+    hillshade_interp_path = os.path.join(OUTPUT_DIR, HILLSHADE_INTERP_TIF)
+    hillshade_topo_path = os.path.join(OUTPUT_DIR, HILLSHADE_TOPO_TIF)
+    dem_diff_path = os.path.join(OUTPUT_DIR, DEM_DIFF_TIF)
+    slope_interp_path = os.path.join(OUTPUT_DIR, SLOPE_INTERP_TIF)
+    slope_topo_path = os.path.join(OUTPUT_DIR, SLOPE_TOPO_TIF)
+    
+    # Set contour interval (e.g., 10m as mentioned in lab, or adjust as needed)
+    CONTOUR_INTERVAL = 10.0 
+
+    # Check if DEMs exist before proceeding
+    if not os.path.exists(dem_interp_path) or not os.path.exists(dem_topo_path):
+        print("Error: One or both DEM files not found. Skipping further analysis.")
+    else:
+        try:
+            # a) Generate Contours
+            print(f"  - Generating contours (interval: {CONTOUR_INTERVAL}m)...")
+            wbt.contours_from_raster(
+                i=dem_interp_path,
+                output=contours_interp_path,
+                interval=CONTOUR_INTERVAL
+            )
+            print(f"    - Contours from Interpolated DEM saved to: {contours_interp_path}")
+            wbt.contours_from_raster(
+                i=dem_topo_path,
+                output=contours_topo_path,
+                interval=CONTOUR_INTERVAL
+            )
+            print(f"    - Contours from Topo DEM saved to: {contours_topo_path}")
+
+            # b) Generate Hillshades
+            print("  - Generating hillshades...")
+            wbt.hillshade(
+                dem=dem_interp_path,
+                output=hillshade_interp_path
+                # Default azimuth=315, altitude=30
+            )
+            print(f"    - Hillshade from Interpolated DEM saved to: {hillshade_interp_path}")
+            wbt.hillshade(
+                dem=dem_topo_path,
+                output=hillshade_topo_path
+            )
+            print(f"    - Hillshade from Topo DEM saved to: {hillshade_topo_path}")
+
+            # c) Calculate DEM Difference
+            print("  - Calculating DEM difference (Topo - Interpolated)...")
+            wbt.subtract(
+                input1=dem_topo_path,
+                input2=dem_interp_path,
+                output=dem_diff_path
+            )
+            print(f"    - DEM difference map saved to: {dem_diff_path}")
+
+            # d) Calculate Slope
+            print("  - Calculating slope...")
+            wbt.slope(
+                dem=dem_interp_path,
+                output=slope_interp_path
+                # Output units: degrees (default)
+            )
+            print(f"    - Slope from Interpolated DEM saved to: {slope_interp_path}")
+            wbt.slope(
+                dem=dem_topo_path,
+                output=slope_topo_path
+            )
+            print(f"    - Slope from Topo DEM saved to: {slope_topo_path}")
+
+        except Exception as e:
+            print(f"Error during Further Analysis: {e}")
+
+    print("\n--- Further Analysis Complete ---")
+    print("\n--- Workflow Script Finished ---")
