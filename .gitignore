@@ -7,6 +7,8 @@ uv.lock
 # python
 __pycache__/
 *.pyc
+build/*
+*.egg-info
 
 # project specific
 downloads/
