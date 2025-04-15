@@ -7,9 +7,9 @@ from math import sqrt
 from sklearn.metrics import mean_squared_error
 from typing import Optional
 
-from src.config import AppConfig
+from pydantic import BaseModel
 
-def assess_dem_quality(settings: AppConfig, wbt: WhiteboxTools, points_shp_path: Path, dem_interp_path: Path, dem_topo_path: Path, dem_toporaster_all_path: Path, point_elev_field: Optional[str]):
+def assess_dem_quality(settings: BaseModel, wbt: WhiteboxTools, points_shp_path: Path, dem_interp_path: Path, dem_topo_path: Path, dem_toporaster_all_path: Path, point_elev_field: Optional[str]):
     """
     Performs quality assessment by calculating RMSE between DEMs and elevation points.
 

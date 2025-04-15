@@ -1,9 +1,10 @@
 from pathlib import Path
 from whitebox import WhiteboxTools
 
-from src.config import AppConfig
+from pydantic import BaseModel
 
-def generate_derived_products(settings: AppConfig, wbt: WhiteboxTools, dem_interp_path: Path, dem_topo_path: Path):
+
+def generate_derived_products(settings: BaseModel, wbt: WhiteboxTools, dem_interp_path: Path, dem_topo_path: Path):
     """
     Generates derived raster and vector products from the DEMs (contours, hillshade, slope, difference).
 

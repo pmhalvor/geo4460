@@ -1,14 +1,16 @@
 import geopandas as gpd
-import os
 import warnings # Added import
-from pathlib import Path
 from typing import Tuple, Dict, Optional
 
-from src.config import AppConfig
-from src.utils import get_common_extent_and_crs, find_elevation_field
+from pydantic import BaseModel
 from pyproj import CRS
 
-def load_and_prepare_data(settings: AppConfig) -> Tuple[Dict[str, gpd.GeoDataFrame], Tuple[float, float, float, float], Optional[CRS], str, Optional[str]]:
+try:
+    from src.utils import get_common_extent_and_crs, find_elevation_field
+except ImportError:
+    from utils import get_common_extent_and_crs, find_elevation_field
+
+def load_and_prepare_data(settings: BaseModel) -> Tuple[Dict[str, gpd.GeoDataFrame], Tuple[float, float, float, float], Optional[CRS], str, Optional[str]]:
     """
     Loads input vector data from the Geodatabase, calculates common extent/CRS,
     saves intermediate shapefiles, and identifies elevation fields.

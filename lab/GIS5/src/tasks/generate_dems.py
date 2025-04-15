@@ -5,8 +5,7 @@ from pathlib import Path
 from whitebox import WhiteboxTools
 from typing import Optional
 
-# Import config first to get GRASS path
-from src.config import settings, AppConfig
+from pydantic import BaseModel
 
 # Ensure grass.sh is added to GRASSBIN env var
 os.environ['GRASSBIN'] = "/Applications/GRASS-8.4.app/Contents/MacOS/Grass.sh"
@@ -17,7 +16,7 @@ import grass.script as gs
 
 
 def generate_dems(
-    settings: AppConfig,
+    settings: BaseModel,
     wbt: WhiteboxTools,
     contour_shp_path: Path,
     contour_elev_field: str,
@@ -320,8 +319,6 @@ def generate_dems(
 
 
     print("--- DEM Generation and Stream Extraction/Burning (if enabled) Complete ---")
-
-
 
 
 # Example usage for testing this module directly

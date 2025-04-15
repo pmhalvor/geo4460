@@ -58,7 +58,6 @@ class OutputFilesConfig(BaseModel):
     # DEMs
     dem_interpolated_tif: str = "dem_interpolated.tif"
     dem_topo_tif: str = "dem_topo_to_raster.tif" # Keep name consistent with original script
-    # Removed dem_toporaster_all_tif as it's now an input defined in PathsConfig
     dem_stream_burned_tif: str = "dem_stream_burned.tif" # Output from GRASS stream burning
 
     # Analysis Outputs
@@ -89,7 +88,7 @@ class ProcessingConfig(BaseModel):
     # Stream Burning Config
     enable_stream_burning: bool = True # Set to True to run GRASS stream burning
     stream_burn_value: float = -10.0 # Value (in elevation units) to burn streams by
-    stream_extract_threshold: int = 500 # Threshold for r.stream.extract (cells)
+    stream_extract_threshold: int = 1 # Threshold for r.stream.extract (cells)
 
 
 class AppConfig(BaseModel):
