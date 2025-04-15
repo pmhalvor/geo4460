@@ -72,11 +72,23 @@ def main():
         # Get DEM paths for next tasks
         dem_interp_path = output_files.get_full_path('dem_interpolated_tif', output_dir)
         dem_topo_path = output_files.get_full_path('dem_topo_tif', output_dir)
+        # Get the path for the INPUT ArcGIS Pro TopoToRaster DEM from PathsConfig
+        dem_toporaster_all_path = settings.paths.toporaster_all_input_tif # Use the direct path from settings
 
         # --- Task 3: Quality Assessment ---
-        assess_dem_quality(settings, wbt, points_shp_path, dem_interp_path, dem_topo_path, point_elev_field)
+        assess_dem_quality(
+            settings=settings,
+            wbt=wbt,
+            points_shp_path=points_shp_path,
+            dem_interp_path=dem_interp_path,
+            dem_topo_path=dem_topo_path,
+            dem_toporaster_all_path=dem_toporaster_all_path, # Pass the new DEM path
+            point_elev_field=point_elev_field
+        )
 
         # --- Task 4: Generate Derived Products ---
+        # Note: Derived products are currently only generated for interp and topo DEMs.
+        # If derived products are needed for TopoRaster_all, this section would also need modification.
         generate_derived_products(settings, wbt, dem_interp_path, dem_topo_path)
 
     except FileNotFoundError as fnf_error:

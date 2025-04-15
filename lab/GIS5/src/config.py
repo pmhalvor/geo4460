@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from pydantic import BaseModel, Field, DirectoryPath, FilePath
 from typing import Optional
+from datetime import datetime
 
 # Determine the base directory relative to this config file
 # config.py is in src/, so BASE_DIR is the parent of src/
@@ -13,7 +14,9 @@ class PathsConfig(BaseModel):
     data_dir: DirectoryPath = Field(default_factory=lambda: BASE_DIR / "GIS5_datafiles")
     # Construct gdb_path relative to BASE_DIR and the known data subdir to avoid recursion
     gdb_path: FilePath = Field(default_factory=lambda: (BASE_DIR / "GIS5_datafiles") / "DEM_analysis_DATA.gdb")
-    output_dir: Path = Field(default_factory=lambda: BASE_DIR / "output_py")
+    output_dir: Path = Field(default_factory=lambda: BASE_DIR / f"output_py_{datetime.now().strftime('%Y%m%d_%H%M')}")
+    # Add path for the input TopoRaster file, relative to data_dir
+    toporaster_all_input_tif: FilePath = Field(default_factory=lambda: (BASE_DIR / "GIS5_datafiles") / "TopoRaster_all.tif")
     grass_executable_path: Optional[str] = "/Applications/GRASS-8.4.app/Contents/MacOS/grass" # Optional path to GRASS GIS executable
 
     # Ensure directories exist or create them if needed (especially output)
@@ -27,6 +30,7 @@ class PathsConfig(BaseModel):
         # A File Geodatabase (.gdb) is a directory, not a file
         if not self.gdb_path.is_dir():
              raise NotADirectoryError(f"Geodatabase directory not found or is not a directory: {self.gdb_path}")
+        # Removed validation for toporaster_all_input_tif to allow soft failure if missing
 
 
 class InputLayersConfig(BaseModel):
@@ -54,6 +58,7 @@ class OutputFilesConfig(BaseModel):
     # DEMs
     dem_interpolated_tif: str = "dem_interpolated.tif"
     dem_topo_tif: str = "dem_topo_to_raster.tif" # Keep name consistent with original script
+    # Removed dem_toporaster_all_tif as it's now an input defined in PathsConfig
     dem_stream_burned_tif: str = "dem_stream_burned.tif" # Output from GRASS stream burning
 
     # Analysis Outputs
