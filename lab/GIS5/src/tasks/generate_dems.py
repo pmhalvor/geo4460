@@ -170,7 +170,6 @@ def generate_dems(
         gisbase_lib = Path(gisbase) / 'lib'
         original_dyld_path = os.environ.get('DYLD_LIBRARY_PATH', '')
         os.environ['DYLD_LIBRARY_PATH'] = f"{gisbase_lib}:{original_dyld_path}"
-        print(f"      - Updated PATH: {os.environ['PATH']}")
         print(f"      - Updated DYLD_LIBRARY_PATH: {os.environ['DYLD_LIBRARY_PATH']}")
 
         # Set GISBASE environment variable for the session
@@ -268,18 +267,19 @@ def generate_dems(
                     raise RuntimeError(f"ERROR: dem_burned map not found by find_file after r.mapcalc. Error: {find_err}")
 
 
-                # Export Burned DEM
-                print("      - Exporting burned DEM...")
+                # Export Burned DEM directly as Float32 with GeoTIFF profile
+                print(f"      - Exporting burned DEM as Float32 to: {dem_burned_path}...")
                 gs.run_command('r.out.gdal',
                                input='dem_burned',
                                output=str(dem_burned_path),
                                format='GTiff',
-                               type='Float32', # Ensure consistent type
+                               type='Float64', 
+                               createopt="PROFILE=GeoTIFF,TFW=YES", # Use BASELINE profile and create World File
                                flags='f',      # Add -f flag to force export if precision issues arise
                                overwrite=True,
                                verbose=True)
 
-                print(f"    - Stream-extracted and burned DEM should be saved to: {dem_burned_path}")
+                print(f"    - Stream-extracted and burned DEM saved to: {dem_burned_path}")
 
             # Session context manager handles cleanup of the session environment
             print("    - GRASS session closed.")
