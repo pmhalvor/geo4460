@@ -29,3 +29,6 @@ dependencies = [
 dev = [
     "pytest>=8.0", # Added for testing
 ]
+
+[tool.setuptools]
+packages = ["lab", "mca", "slides", "downloads"]

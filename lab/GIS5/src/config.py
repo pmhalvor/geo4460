@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from pydantic import BaseModel, Field, DirectoryPath, FilePath
+from typing import Optional
 
 # Determine the base directory relative to this config file
 # config.py is in src/, so BASE_DIR is the parent of src/
@@ -13,6 +14,7 @@ class PathsConfig(BaseModel):
     # Construct gdb_path relative to BASE_DIR and the known data subdir to avoid recursion
     gdb_path: FilePath = Field(default_factory=lambda: (BASE_DIR / "GIS5_datafiles") / "DEM_analysis_DATA.gdb")
     output_dir: Path = Field(default_factory=lambda: BASE_DIR / "output_py")
+    grass_executable_path: Optional[str] = "/Applications/GRASS-8.4.app/Contents/MacOS/grass" # Optional path to GRASS GIS executable
 
     # Ensure directories exist or create them if needed (especially output)
     def __init__(self, **data):
@@ -52,6 +54,7 @@ class OutputFilesConfig(BaseModel):
     # DEMs
     dem_interpolated_tif: str = "dem_interpolated.tif"
     dem_topo_tif: str = "dem_topo_to_raster.tif" # Keep name consistent with original script
+    dem_stream_burned_tif: str = "dem_stream_burned.tif" # Output from GRASS stream burning
 
     # Analysis Outputs
     hillshade_interpolated_tif: str = "hillshade_interpolated.tif"
@@ -60,7 +63,7 @@ class OutputFilesConfig(BaseModel):
     slope_topo_tif: str = "slope_topo.tif"
     contours_interpolated_shp: str = "contours_interpolated.shp"
     contours_topo_shp: str = "contours_topo.shp"
-    dem_diff_tif: str = "dem_difference.tif"
+    dem_diff_tif: str = "dem_difference.tif" # Original difference (Topo - Interp)
 
     # Quality Assessment
     rmse_csv: str = "rmse_comparison.csv"
@@ -78,6 +81,10 @@ class ProcessingConfig(BaseModel):
     output_cell_size: float = 50.0  # Meters
     contour_interval: float = 10.0 # Meters
     wbt_verbose: bool = False # Control WhiteboxTools verbosity
+    # Stream Burning Config
+    enable_stream_burning: bool = True # Set to True to run GRASS stream burning
+    stream_burn_value: float = -10.0 # Value (in elevation units) to burn streams by
+    stream_extract_threshold: int = 500 # Threshold for r.stream.extract (cells)
 
 
 class AppConfig(BaseModel):

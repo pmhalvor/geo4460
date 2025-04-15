@@ -23,7 +23,6 @@ except ImportError:
     from tasks.quality_assessment import assess_dem_quality
     from tasks.derive_products import generate_derived_products
 
-
 def main():
     """Runs the complete DEM analysis workflow."""
     start_time = time.time()
@@ -56,9 +55,19 @@ def main():
         output_files = settings.output_files
         contour_shp_path = output_files.get_full_path('contour_shp', output_dir)
         points_shp_path = output_files.get_full_path('points_shp', output_dir)
+        # Get the path to the river shapefile saved by load_data
+        river_shp_path = output_files.get_full_path('river_shp', output_dir)
 
         # --- Task 2: Generate DEMs ---
-        generate_dems(settings, wbt, contour_shp_path, contour_elev_field)
+        # Pass the river shapefile path for potential stream burning
+        generate_dems(
+            settings=settings,
+            wbt=wbt,
+            contour_shp_path=contour_shp_path,
+            contour_elev_field=contour_elev_field,
+            river_shp_path=river_shp_path, # Pass the river path
+            stream_extract_threshold=settings.processing.stream_extract_threshold if settings.processing.enable_stream_burning else None
+        )
 
         # Get DEM paths for next tasks
         dem_interp_path = output_files.get_full_path('dem_interpolated_tif', output_dir)
