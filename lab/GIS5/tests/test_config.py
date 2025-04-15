@@ -3,20 +3,25 @@ from pathlib import Path
 
 from src.config import settings, AppConfig, PathsConfig
 
+
 def test_config_loading():
     """Test that the main AppConfig loads without errors."""
     assert settings is not None
     assert isinstance(settings, AppConfig)
-    print(f"Settings loaded: {settings.model_dump()}") # Print for debugging in test output
+    print(
+        f"Settings loaded: {settings.model_dump()}"
+    )  # Print for debugging in test output
+
 
 def test_config_paths_exist():
     """Test that essential path configurations exist."""
-    assert hasattr(settings, 'paths')
+    assert hasattr(settings, "paths")
     assert isinstance(settings.paths, PathsConfig)
-    assert hasattr(settings.paths, 'base_dir')
-    assert hasattr(settings.paths, 'data_dir')
-    assert hasattr(settings.paths, 'gdb_path')
-    assert hasattr(settings.paths, 'output_dir')
+    assert hasattr(settings.paths, "base_dir")
+    assert hasattr(settings.paths, "data_dir")
+    assert hasattr(settings.paths, "gdb_path")
+    assert hasattr(settings.paths, "output_dir")
+
 
 def test_config_path_types():
     """Test that path attributes are Path objects."""
@@ -25,10 +30,12 @@ def test_config_path_types():
     assert isinstance(settings.paths.gdb_path, Path)
     assert isinstance(settings.paths.output_dir, Path)
 
+
 def test_output_dir_default_name():
     """Check the default name of the output directory."""
     # This assumes the default factory is used
     assert settings.paths.output_dir.name == "output_py"
+
 
 # Note: Testing the existence of data_dir and gdb_path requires the actual data
 # to be present where the test runner expects it. These tests might fail in CI

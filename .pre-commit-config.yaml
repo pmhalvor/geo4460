@@ -1,0 +1,14 @@
+repos:
+  - repo: https://github.com/psf/black
+    rev: 24.3.0  # Use the latest stable version or pin your preferred version
+    hooks:
+      - id: black
+        args: [--line-length=88]
+        include: ^(src|tests)/
+
+  # - repo: https://github.com/pycqa/flake8
+  #   rev: 6.1.0  # Use the latest stable version or pin your preferred version
+  #   hooks:
+  #     - id: flake8
+  #       additional_dependencies: []
+  #       include: ^(src|tests)/

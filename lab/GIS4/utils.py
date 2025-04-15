@@ -1,12 +1,14 @@
 from simpledbf import Dbf5
 
-import os  
+import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 
 
-def load_snow_melt_data_sampled(dir_path: str = ".", file_name: str = "sample_raster_snow_melt.csv"):
+def load_snow_melt_data_sampled(
+    dir_path: str = ".", file_name: str = "sample_raster_snow_melt.csv"
+):
     """
     Method for loading randomly sampled snow and thaw data.
     Load snow and thaw data from the specified directory.
@@ -18,12 +20,14 @@ def load_snow_melt_data_sampled(dir_path: str = ".", file_name: str = "sample_ra
         dict: A dictionary containing the loaded data.
     """
     df = pd.read_csv(os.path.join(dir_path, file_name), sep=";", header=0)
-    
+
     df = preprocess(df)
     return df
 
 
-def load_snow_melt_data_raw(dir_path: str = ".", file_name: str = "month_thaw_snow.dbf"):
+def load_snow_melt_data_raw(
+    dir_path: str = ".", file_name: str = "month_thaw_snow.dbf"
+):
     """
     Method for loading raw snow and thaw data.
     Load snow and thaw data from the specified directory.
@@ -53,20 +57,41 @@ def preprocess(df: pd.DataFrame) -> pd.DataFrame:
     """
     df.rename(columns={"X": "XM", "Y": "YM"}, inplace=True)
     df.drop(columns=["sample"], inplace=True)
-    df.rename(columns=lambda col: col.replace("Raster_Krig_", "").replace("_Band_1", ""), inplace=True)
-    df = df.replace(',', '.', regex=True).astype(float)
-    return df[["XM", "YM", "SNOW200705", "THAW200705", "THAW200706", "THAW200707", "THAW200708", "THAW200709"]].copy()
+    df.rename(
+        columns=lambda col: col.replace("Raster_Krig_", "").replace("_Band_1", ""),
+        inplace=True,
+    )
+    df = df.replace(",", ".", regex=True).astype(float)
+    return df[
+        [
+            "XM",
+            "YM",
+            "SNOW200705",
+            "THAW200705",
+            "THAW200706",
+            "THAW200707",
+            "THAW200708",
+            "THAW200709",
+        ]
+    ].copy()
 
 
 def process_regression_data(data: dict):
-    regression_df = pd.DataFrame(data, columns=['THAW Column', '1st Order', '2nd Order', '3rd Order'])
+    regression_df = pd.DataFrame(
+        data, columns=["THAW Column", "1st Order", "2nd Order", "3rd Order"]
+    )
 
-    regression_df['1st Order'] = regression_df['1st Order'].apply(lambda x: np.round(x, 4))
-    regression_df['2nd Order'] = regression_df['2nd Order'].apply(lambda x: np.round(x, 4))
-    regression_df['3rd Order'] = regression_df['3rd Order'].apply(lambda x: np.round(x, 4))
+    regression_df["1st Order"] = regression_df["1st Order"].apply(
+        lambda x: np.round(x, 4)
+    )
+    regression_df["2nd Order"] = regression_df["2nd Order"].apply(
+        lambda x: np.round(x, 4)
+    )
+    regression_df["3rd Order"] = regression_df["3rd Order"].apply(
+        lambda x: np.round(x, 4)
+    )
 
     return regression_df[["THAW Column", "1st Order", "2nd Order"]].copy()
-
 
 
 if __name__ == "__main__":
