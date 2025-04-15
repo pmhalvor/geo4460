@@ -23,6 +23,7 @@ except ImportError:
     from tasks.quality_assessment import assess_dem_quality
     from tasks.derive_products import generate_derived_products
 
+
 def main():
     """Runs the complete DEM analysis workflow."""
     start_time = time.time()
@@ -39,7 +40,9 @@ def main():
         wbt.set_verbose_mode(settings.processing.wbt_verbose)
     except Exception as e:
         print(f"Error initializing WhiteboxTools: {e}")
-        print("Ensure WhiteboxTools executable is correctly installed and in the system PATH.")
+        print(
+            "Ensure WhiteboxTools executable is correctly installed and in the system PATH."
+        )
         sys.exit(1)
 
     # --- Setup Output Directory ---
@@ -48,15 +51,17 @@ def main():
 
     try:
         # --- Task 1: Load Data ---
-        loaded_gdfs, common_extent, common_crs, contour_elev_field, point_elev_field = load_and_prepare_data(settings)
+        loaded_gdfs, common_extent, common_crs, contour_elev_field, point_elev_field = (
+            load_and_prepare_data(settings)
+        )
 
         # Get necessary paths for subsequent tasks
         output_dir = settings.paths.output_dir
         output_files = settings.output_files
-        contour_shp_path = output_files.get_full_path('contour_shp', output_dir)
-        points_shp_path = output_files.get_full_path('points_shp', output_dir)
+        contour_shp_path = output_files.get_full_path("contour_shp", output_dir)
+        points_shp_path = output_files.get_full_path("points_shp", output_dir)
         # Get the path to the river shapefile saved by load_data
-        river_shp_path = output_files.get_full_path('river_shp', output_dir)
+        river_shp_path = output_files.get_full_path("river_shp", output_dir)
 
         # --- Task 2: Generate DEMs ---
         # Pass the river shapefile path for potential stream burning
@@ -65,15 +70,21 @@ def main():
             wbt=wbt,
             contour_shp_path=contour_shp_path,
             contour_elev_field=contour_elev_field,
-            river_shp_path=river_shp_path, # Pass the river path
-            stream_extract_threshold=settings.processing.stream_extract_threshold if settings.processing.enable_stream_burning else None
+            river_shp_path=river_shp_path,  # Pass the river path
+            stream_extract_threshold=(
+                settings.processing.stream_extract_threshold
+                if settings.processing.enable_stream_burning
+                else None
+            ),
         )
 
         # Get DEM paths for next tasks
-        dem_interp_path = output_files.get_full_path('dem_interpolated_tif', output_dir)
-        dem_topo_path = output_files.get_full_path('dem_topo_tif', output_dir)
+        dem_interp_path = output_files.get_full_path("dem_interpolated_tif", output_dir)
+        dem_topo_path = output_files.get_full_path("dem_topo_tif", output_dir)
         # Get the path for the INPUT ArcGIS Pro TopoToRaster DEM from PathsConfig
-        dem_toporaster_all_path = settings.paths.toporaster_all_input_tif # Use the direct path from settings
+        dem_toporaster_all_path = (
+            settings.paths.toporaster_all_input_tif
+        )  # Use the direct path from settings
 
         # --- Task 3: Quality Assessment ---
         assess_dem_quality(
@@ -82,8 +93,8 @@ def main():
             points_shp_path=points_shp_path,
             dem_interp_path=dem_interp_path,
             dem_topo_path=dem_topo_path,
-            dem_toporaster_all_path=dem_toporaster_all_path, # Pass the new DEM path
-            point_elev_field=point_elev_field
+            dem_toporaster_all_path=dem_toporaster_all_path,  # Pass the new DEM path
+            point_elev_field=point_elev_field,
         )
 
         # --- Task 4: Generate Derived Products ---
@@ -111,6 +122,7 @@ def main():
     end_time = time.time()
     print("\n--- Workflow Script Finished ---")
     print(f"Total execution time: {end_time - start_time:.2f} seconds")
+
 
 if __name__ == "__main__":
     main()

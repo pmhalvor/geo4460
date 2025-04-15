@@ -1,5 +1,5 @@
 import geopandas as gpd
-import warnings # Added import
+import warnings  # Added import
 from typing import Tuple, Dict, Optional
 
 from pydantic import BaseModel
@@ -10,7 +10,16 @@ try:
 except ImportError:
     from utils import get_common_extent_and_crs, find_elevation_field
 
-def load_and_prepare_data(settings: BaseModel) -> Tuple[Dict[str, gpd.GeoDataFrame], Tuple[float, float, float, float], Optional[CRS], str, Optional[str]]:
+
+def load_and_prepare_data(
+    settings: BaseModel,
+) -> Tuple[
+    Dict[str, gpd.GeoDataFrame],
+    Tuple[float, float, float, float],
+    Optional[CRS],
+    str,
+    Optional[str],
+]:
     """
     Loads input vector data from the Geodatabase, calculates common extent/CRS,
     saves intermediate shapefiles, and identifies elevation fields.
@@ -31,7 +40,7 @@ def load_and_prepare_data(settings: BaseModel) -> Tuple[Dict[str, gpd.GeoDataFra
         ValueError: If CRS reprojection fails or elevation fields cannot be determined.
     """
     print(f"\n1. Reading data from: {settings.paths.gdb_path}")
-    gdb_path = str(settings.paths.gdb_path) # Geopandas might prefer string path
+    gdb_path = str(settings.paths.gdb_path)  # Geopandas might prefer string path
     output_dir = settings.paths.output_dir
     input_layers = settings.input_layers
     output_files = settings.output_files
@@ -73,45 +82,63 @@ def load_and_prepare_data(settings: BaseModel) -> Tuple[Dict[str, gpd.GeoDataFra
             warnings.filterwarnings(
                 "ignore",
                 category=RuntimeWarning,
-                module="pyogrio\\.raw", # Target warnings specifically from pyogrio
+                module="pyogrio\\.raw",  # Target warnings specifically from pyogrio
             )
-            contours_gdf.to_file(output_files.get_full_path('contour_shp', output_dir))
-            rivers_gdf.to_file(output_files.get_full_path('river_shp', output_dir))
-            lakes_gdf.to_file(output_files.get_full_path('lake_shp', output_dir))
-            points_gdf.to_file(output_files.get_full_path('points_shp', output_dir))
+            contours_gdf.to_file(output_files.get_full_path("contour_shp", output_dir))
+            rivers_gdf.to_file(output_files.get_full_path("river_shp", output_dir))
+            lakes_gdf.to_file(output_files.get_full_path("lake_shp", output_dir))
+            points_gdf.to_file(output_files.get_full_path("points_shp", output_dir))
         print("   ...done.")
 
         # --- Identify Elevation Fields ---
         print("\n   Identifying elevation fields...")
         # Contour Elevation Field
-        contour_elev_field = find_elevation_field(contours_gdf, [input_layers.contour_elevation_field]) # Prioritize configured field
+        contour_elev_field = find_elevation_field(
+            contours_gdf, [input_layers.contour_elevation_field]
+        )  # Prioritize configured field
         if contour_elev_field is None:
-             # Try candidates if primary fails (though config should be specific)
-             contour_elev_field = find_elevation_field(contours_gdf, input_layers.point_elevation_field_candidates) # Reuse candidates list
-             if contour_elev_field is None:
-                 raise ValueError(f"Could not find contour elevation field (tried '{input_layers.contour_elevation_field}' and candidates) in {input_layers.contour_layer}.")
-             else:
-                 print(f"Warning: Configured contour field '{input_layers.contour_elevation_field}' not found, using '{contour_elev_field}' instead.")
+            # Try candidates if primary fails (though config should be specific)
+            contour_elev_field = find_elevation_field(
+                contours_gdf, input_layers.point_elevation_field_candidates
+            )  # Reuse candidates list
+            if contour_elev_field is None:
+                raise ValueError(
+                    f"Could not find contour elevation field (tried '{input_layers.contour_elevation_field}' and candidates) in {input_layers.contour_layer}."
+                )
+            else:
+                print(
+                    f"Warning: Configured contour field '{input_layers.contour_elevation_field}' not found, using '{contour_elev_field}' instead."
+                )
         else:
-             print(f"  - Using contour elevation field: '{contour_elev_field}'")
-
+            print(f"  - Using contour elevation field: '{contour_elev_field}'")
 
         # Point Elevation Field
-        point_elev_field = find_elevation_field(points_gdf, input_layers.point_elevation_field_candidates)
+        point_elev_field = find_elevation_field(
+            points_gdf, input_layers.point_elevation_field_candidates
+        )
         if point_elev_field is None:
-            print("Warning: Could not identify elevation field in points layer using candidates.")
+            print(
+                "Warning: Could not identify elevation field in points layer using candidates."
+            )
             # Allow workflow to continue but RMSE will fail later if needed
         else:
-             print(f"  - Using point elevation field: '{point_elev_field}'")
-
+            print(f"  - Using point elevation field: '{point_elev_field}'")
 
         print("--- Data Loading and Preparation Complete ---")
-        return loaded_gdfs, common_extent, common_crs, contour_elev_field, point_elev_field
+        return (
+            loaded_gdfs,
+            common_extent,
+            common_crs,
+            contour_elev_field,
+            point_elev_field,
+        )
 
     except ImportError as ie:
-         print(f"Error reading data: {ie}")
-         print("Ensure the necessary driver (e.g., GDAL FileGDB driver) is correctly installed and accessible.")
-         raise # Re-raise after providing context
+        print(f"Error reading data: {ie}")
+        print(
+            "Ensure the necessary driver (e.g., GDAL FileGDB driver) is correctly installed and accessible."
+        )
+        raise  # Re-raise after providing context
     except Exception as e:
         print(f"An unexpected error occurred during data loading: {e}")
-        raise # Re-raise the exception
+        raise  # Re-raise the exception
