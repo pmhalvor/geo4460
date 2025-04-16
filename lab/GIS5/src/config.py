@@ -14,16 +14,17 @@ class PathsConfig(BaseModel):
     data_dir: DirectoryPath = Field(default_factory=lambda: BASE_DIR / "GIS5_datafiles")
     # Construct gdb_path relative to BASE_DIR and the known data subdir to avoid recursion
     gdb_path: FilePath = Field(
-        default_factory=lambda: (BASE_DIR / "GIS5_datafiles") / "DEM_analysis_DATA.gdb"
+        default_factory=lambda: (BASE_DIR / "GIS5_datafiles") / "DEM_Rogaland.gdb"
     )
     output_dir: Path = Field(
         default_factory=lambda: BASE_DIR
-        / "output_py"  # Use a fixed name for pro, date name for dev
+        / "output_rogaland"  # Use a fixed name for pro, date name for dev
         # / f"output_py_{datetime.now().strftime('%Y%m%d_%H%M')}"
     )
     # Path for the input TopoToRaster (ANUDEM) file, relative to data_dir
     toporaster_all_input_tif: FilePath = Field(
-        default_factory=lambda: (BASE_DIR / "GIS5_datafiles") / "TopoRaster_all.tif"
+        default_factory=lambda: (BASE_DIR / "GIS5_datafiles")
+        / "TopoRaster_Rogaland.tif"
     )
     # transect_input_shp removed, as we will create it based on coordinates
     grass_executable_path: Optional[str] = (
@@ -54,11 +55,19 @@ class InputLayersConfig(BaseModel):
     contour_layer: str = "contour_arc"
     river_layer: str = "rivers_arc"
     lake_layer: str = "lakes_polygon"
-    points_layer: str = "elevationp_point"  # TODO remove extra p (depend on input data)
+    points_layer: str = "elevation_point"
     # Field names (add flexibility)
-    contour_elevation_field: str = "HOEYDE"
+    contour_elevation_field: str = "hoeyde"
     point_elevation_field_candidates: list[str] = Field(
-        default=["RASTERVALU", "POINT_Z", "Elevation", "Z_Value", "Value", "HOEYDE"]
+        default=[
+            "RASTERVALU",
+            "POINT_Z",
+            "Elevation",
+            "Z_Value",
+            "Value",
+            "HOEYDE",
+            "hoeyde",
+        ]
     )
 
 
