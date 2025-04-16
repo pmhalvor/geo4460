@@ -2,6 +2,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import traceback
+import logging
 from pathlib import Path
 from whitebox import WhiteboxTools
 from math import sqrt
@@ -9,6 +10,9 @@ from sklearn.metrics import mean_squared_error
 from typing import Optional, Dict, Tuple, List, Set
 
 from pydantic import BaseModel
+
+# Get a logger for this module
+logger = logging.getLogger(__name__)
 
 
 class QualityAssessor:
@@ -64,16 +68,18 @@ class QualityAssessor:
         )  # Map DEM key to final column name in GDF
 
     def _log(self, message: str, level: str = "info"):
-        """Helper for logging messages."""
-        if level == "info":
-            prefix = "  -"
-        elif level == "warning":
-            prefix = "    - WARNING:"
-        elif level == "error":
-            prefix = "    - ERROR:"
-        else:
-            prefix = f"    - {level.upper()}:"
-        print(f"{prefix} {message}")
+        """Helper for logging messages using the module-level logger."""
+        # Map simple levels to logging levels
+        level_map = {
+            "info": logging.INFO,
+            "warning": logging.WARNING,
+            "error": logging.ERROR,
+            "debug": logging.DEBUG,
+        }
+        log_level = level_map.get(level.lower(), logging.INFO)  # Default to INFO
+        # Add indentation based on typical usage in this class
+        indent_str = "  " if log_level == logging.INFO else "    "
+        logger.log(log_level, f"{indent_str}{message}")
 
     def verify_inputs(self) -> bool:
         """
@@ -505,19 +511,19 @@ class QualityAssessor:
         Returns:
             Optional[pd.DataFrame]: DataFrame with RMSE results, or None if any critical step failed.
         """
-        print("\n3. Quality Assessment (RMSE)...")
+        logger.info("--- Starting Task 3: Quality Assessment (RMSE) ---")
         try:
             if not self.verify_inputs():
-                print("--- Quality Assessment Failed (Input Verification) ---")
+                logger.error("--- Quality Assessment Failed (Input Verification) ---")
                 return None
 
             if not self.prepare_points_layer():
-                print("--- Quality Assessment Failed (Prepare Points Layer) ---")
+                logger.error("--- Quality Assessment Failed (Prepare Points Layer) ---")
                 return None
 
             if not self.extract_dem_points():
                 # This indicates a critical file I/O error during extraction
-                print(
+                logger.error(
                     "--- Quality Assessment Failed (Critical Error During Point Extraction) ---"
                 )
                 return None
@@ -525,23 +531,27 @@ class QualityAssessor:
 
             is_gdf_valid, valid_dem_cols = self.verify_preprocessed_gdf()
             if not is_gdf_valid:
-                print(
+                logger.error(
                     "--- Quality Assessment Failed (Preprocessed GDF Verification) ---"
                 )
                 return None
 
             rmse_df = self.calculate_rmse(valid_dem_cols)
             if rmse_df is None:
-                print("--- Quality Assessment Failed (RMSE Calculation or Saving) ---")
+                logger.error(
+                    "--- Quality Assessment Failed (RMSE Calculation or Saving) ---"
+                )
                 return None  # calculation_rmse returns None on failure
 
-            print("--- Quality Assessment Complete ---")
+            logger.info("--- Quality Assessment Complete ---")
             return rmse_df  # Return the DataFrame
 
         except Exception as e:
-            print("\n--- Quality Assessment Failed (Unexpected Error) ---")
-            self._log(f"An unexpected error occurred: {e}", level="error")
-            print(traceback.format_exc())
+            logger.error(
+                "--- Quality Assessment Failed (Unexpected Error) ---", exc_info=True
+            )
+            # self._log(f"An unexpected error occurred: {e}", level="error") # _log doesn't support exc_info
+            # print(traceback.format_exc()) # No longer needed
             return None  # Indicate failure
 
 

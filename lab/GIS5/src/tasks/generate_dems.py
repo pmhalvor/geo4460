@@ -2,12 +2,16 @@ import os
 import shutil
 import subprocess
 import tempfile
+import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel
 from whitebox import WhiteboxTools
+
+# Get a logger for this module
+logger = logging.getLogger(__name__)
 
 # --- Base Class for DEM Generation Methods ---
 
@@ -36,9 +40,16 @@ class BaseDemGenerator(ABC):
     def _log(self, message: str, level: str = "info", indent: int = 1):
         """Helper for logging messages with indentation."""
         indent_str = "  " * indent
-        prefix_map = {"info": "-", "warning": "WARNING:", "error": "ERROR:"}
-        prefix = prefix_map.get(level, level.upper() + ":")
-        print(f"{indent_str}{prefix} {message}")
+        # Map simple levels to logging levels
+        level_map = {
+            "info": logging.INFO,
+            "warning": logging.WARNING,
+            "error": logging.ERROR,
+            "debug": logging.DEBUG,
+        }
+        log_level = level_map.get(level.lower(), logging.INFO)  # Default to INFO
+        # Use the module-level logger with the correct level and message
+        logger.log(log_level, f"{indent_str}{message}")
 
     @abstractmethod
     def generate(self, inputs: Dict[str, Path]) -> bool:
@@ -309,7 +320,7 @@ class StreamBurnDemGenerator(BaseDemGenerator):
         except ImportError as e:
             self._log(
                 f"Failed to import GRASS Python libraries: {e}. "
-                f"Ensure GRASS environment is active or PYTHONPATH is set.",
+                f"Ensure GRASS environment is active or GRASSBIN is set.",
                 level="error",
                 indent=3,
             )
@@ -518,9 +529,16 @@ class DemGenerationWorkflow:
     def _log(self, message: str, level: str = "info", indent: int = 1):
         """Orchestrator logging."""
         indent_str = "  " * indent
-        prefix_map = {"info": "-", "warning": "WARNING:", "error": "ERROR:"}
-        prefix = prefix_map.get(level, level.upper() + ":")
-        print(f"{indent_str}{prefix} {message}")
+        # Map simple levels to logging levels
+        level_map = {
+            "info": logging.INFO,
+            "warning": logging.WARNING,
+            "error": logging.ERROR,
+            "debug": logging.DEBUG,
+        }
+        log_level = level_map.get(level.lower(), logging.INFO)  # Default to INFO
+        # Use the module-level logger
+        logger.log(log_level, f"{indent_str}{message}")
 
     def _prepare_contour_points(self) -> bool:
         """Generates the shared intermediate contour points shapefile."""
@@ -565,13 +583,13 @@ class DemGenerationWorkflow:
 
     def run_all(self) -> bool:
         """Runs the full DEM generation workflow."""
-        print("\n2. Generating DEMs...")
+        logger.info("Starting DEM Generation...")
         overall_success = True
         results: Dict[str, bool] = {}  # Track success of each step
 
         # Step 1: Prepare shared inputs
         if not self._prepare_contour_points():
-            print("--- DEM Generation Failed (Contour Points Preparation) ---")
+            logger.error("--- DEM Generation Failed (Contour Points Preparation) ---")
             return False
 
         # Step 2: Run Interpolation
@@ -611,7 +629,7 @@ class DemGenerationWorkflow:
             results["stream_burn"] = True  # Skipped successfully
 
         # --- Summary ---
-        print("\n--- DEM Generation Summary ---")
+        logger.info("--- DEM Generation Summary ---")
         for method, success in results.items():
             status = (
                 "Success"
@@ -622,12 +640,14 @@ class DemGenerationWorkflow:
                     else "Skipped"
                 )
             )
-            print(f"  - {self.generators[method].method_name}: {status}")
+            logger.info(f"  - {self.generators[method].method_name}: {status}")
 
         if overall_success:
-            print("--- All enabled DEM generation steps completed successfully ---")
+            logger.info(
+                "--- All enabled DEM generation steps completed successfully ---"
+            )
         else:
-            print(
+            logger.warning(
                 "--- One or more DEM generation steps failed or were skipped due to errors ---"
             )
 
@@ -678,13 +698,13 @@ if __name__ == "__main__":
         # Or having the project root in PYTHONPATH
         from src.config import settings
     except ImportError:
-        print("ERROR: Could not import settings from src.config.")
-        print(
+        logger.error("Could not import settings from src.config.")
+        logger.error(
             "Ensure you are running this script from the project root or have set PYTHONPATH."
         )
         exit(1)
 
-    print("--- Testing generate_dems.py ---")
+    logger.info("--- Testing generate_dems.py ---")
 
     # Initialize WhiteboxTools
     try:
@@ -697,14 +717,14 @@ if __name__ == "__main__":
         ):
             wbt_working_dir = settings.paths.project_root
         else:
-            print(
-                f"WARNING: settings.paths.project_root not found or invalid. "
+            logger.warning(
+                f"settings.paths.project_root not found or invalid. "
                 f"Using output_dir as WBT working dir: {wbt_working_dir}"
             )
         wbt_test.set_working_dir(str(wbt_working_dir))
-        print(f"WhiteboxTools initialized. Working directory: {wbt_working_dir}")
+        logger.info(f"WhiteboxTools initialized. Working directory: {wbt_working_dir}")
     except Exception as e:
-        print(f"Error initializing WhiteboxTools: {e}")
+        logger.error(f"Error initializing WhiteboxTools: {e}")
         exit(1)
 
     # Define inputs using paths from settings
@@ -718,28 +738,28 @@ if __name__ == "__main__":
 
     # Check required inputs
     if not contour_shp_test_path.exists():
-        print(
-            f"ERROR: Contour shapefile for testing not found at {contour_shp_test_path}"
+        logger.error(
+            f"Contour shapefile for testing not found at {contour_shp_test_path}"
         )
-        print("Please run the 'load_data' step first.")
+        logger.error("Please run the 'load_data' step first.")
         exit(1)
     if settings.processing.enable_stream_burning and (
         not river_shp_test_path or not river_shp_test_path.exists()
     ):
-        print(
-            f"WARNING: Stream burning enabled, but river shapefile not found at {river_shp_test_path}."
+        logger.warning(
+            f"Stream burning enabled, but river shapefile not found at {river_shp_test_path}."
         )
 
-    print(f"\nUsing Contour Shapefile: {contour_shp_test_path}")
-    print(f"Using Contour Elevation Field: {contour_elev_field_test}")
+    logger.info(f"Using Contour Shapefile: {contour_shp_test_path}")
+    logger.info(f"Using Contour Elevation Field: {contour_elev_field_test}")
     if settings.processing.enable_stream_burning:
-        print(
+        logger.info(
             f"Stream Burning Enabled: True (Threshold: {settings.processing.stream_extract_threshold}, "
             f"Burn Value: {settings.processing.stream_burn_value})"
         )
-        print(f"GRASS Executable: {settings.paths.grass_executable_path}")
+        logger.info(f"GRASS Executable: {settings.paths.grass_executable_path}")
     else:
-        print("Stream Burning Enabled: False")
+        logger.info("Stream Burning Enabled: False")
 
     try:
         # Call the main wrapper function
@@ -756,14 +776,16 @@ if __name__ == "__main__":
             ),
         )
         if test_success:
-            print("\n--- generate_dems.py test completed successfully ---")
+            logger.info("--- generate_dems.py test completed successfully ---")
         else:
-            print(
-                "\n--- generate_dems.py test finished with errors (check logs above) ---"
+            logger.warning(
+                "--- generate_dems.py test finished with errors (check logs above) ---"
             )
 
     except Exception as e:
-        print(f"\n--- generate_dems.py test failed with unhandled exception: {e} ---")
-        import traceback
-
-        traceback.print_exc()
+        logger.error(
+            f"--- generate_dems.py test failed with unhandled exception: {e} ---",
+            exc_info=True,
+        )
+        # import traceback # No longer needed, logger handles it
+        # traceback.print_exc()
