@@ -1,11 +1,19 @@
 # lab/GIS5/src/tasks/derive_products.py
 from pathlib import Path
 from typing import Optional, Dict, List
-from whitebox import WhiteboxTools
-from pydantic import BaseModel
+import json  # Added import
 import logging
+import re  # Added import
+from pathlib import Path
+from typing import Optional, Dict, List, Any
+
 import geopandas as gpd
+import matplotlib.pyplot as plt  # Re-added import
+import numpy as np
+import rasterio
+from pydantic import BaseModel
 from shapely.geometry import LineString
+from whitebox import WhiteboxTools
 
 # Configure logging
 # Consider changing level to logging.DEBUG for more verbose output if needed
@@ -48,6 +56,9 @@ class DerivedProductGenerator:
         self.common_crs = common_crs  # Store the common CRS
         self.common_extent = common_extent  # Store the common extent
         self.processed_dems: Dict[str, Path] = {}
+        self.profile_data: Dict[str, Dict[str, np.ndarray]] = (
+            {}
+        )  # To store extracted profile data
         self.wbt.set_verbose_mode(self.settings.processing.wbt_verbose)
         logger.info("DerivedProductGenerator initialized.")
         if not common_crs:
@@ -252,6 +263,7 @@ class DerivedProductGenerator:
                 # Output units: degrees (default)
             )
             logger.info(f"    - Slope from '{dem_name}' DEM saved to: {output_path}")
+            # Removed code block for reading and storing slope data
             return output_path
         except Exception as e:
             logger.error(f"Failed to calculate slope for '{dem_name}': {e}")
@@ -302,6 +314,67 @@ class DerivedProductGenerator:
             logger.info(
                 f"    - Profile analysis for '{dem_name}' saved to: {output_path}"
             )
+
+            # --- Extract data from HTML ---
+            try:
+                with open(output_path, "r", encoding="utf-8") as f:
+                    html_content = f.read()
+
+                # Find the 'var plot = {...};' block
+                match = re.search(r"var plot = ({.*?});", html_content, re.DOTALL)
+                if match:
+                    json_str = match.group(1)
+                    # The extracted string is JavaScript, not pure JSON.
+                    # We need to carefully extract the lists. A simpler regex might work here
+                    # assuming the structure is consistent.
+                    data_x_match = re.search(
+                        r"dataX:\s*(\[\[.*?\]\])", json_str, re.DOTALL
+                    )
+                    data_y_match = re.search(
+                        r"dataY:\s*(\[\[.*?\]\])", json_str, re.DOTALL
+                    )
+
+                    if data_x_match and data_y_match:
+                        # Use json.loads to parse the list strings
+                        distance_list = json.loads(data_x_match.group(1))
+                        elevation_list = json.loads(data_y_match.group(1))
+
+                        # Assuming only one profile line per file (index [0])
+                        if distance_list and elevation_list:
+                            self.profile_data[dem_name] = {
+                                "distance": np.array(distance_list[0]),
+                                "elevation": np.array(elevation_list[0]),
+                            }
+                            logger.info(
+                                f"    - Extracted profile data for '{dem_name}'"
+                            )
+                        else:
+                            logger.warning(
+                                f"    - Empty data lists found in profile HTML for '{dem_name}'."
+                            )
+                    else:
+                        logger.warning(
+                            f"    - Could not extract dataX/dataY lists from script in profile HTML for '{dem_name}'."
+                        )
+                else:
+                    logger.warning(
+                        f"    - Could not find 'var plot' definition in profile HTML for '{dem_name}'."
+                    )
+
+            except FileNotFoundError:
+                logger.error(
+                    f"    - Profile HTML file not found after generation: {output_path}"
+                )
+            except json.JSONDecodeError as json_e:
+                logger.error(
+                    f"    - Failed to parse JSON data from profile HTML for '{dem_name}': {json_e}"
+                )
+            except Exception as extract_e:
+                logger.error(
+                    f"    - Error extracting data from profile HTML for '{dem_name}': {extract_e}"
+                )
+            # --- End data extraction ---
+
             return output_path
         except Exception as e:
             # Log exception type for better debugging
@@ -384,6 +457,57 @@ class DerivedProductGenerator:
             # Log exception type for better debugging
             logger.error(f"Failed DEM difference calculation ({type(e).__name__}): {e}")
             raise
+
+    def plot_combined_profiles(
+        self, output_filename: str = "combined_profiles_plot.png"
+    ):
+        """
+        Generates a Matplotlib plot comparing elevation profiles from all processed DEMs.
+
+        Args:
+            output_filename: The name for the output plot image file.
+        """
+        if not self.profile_data:
+            logger.warning("No profile data extracted to plot.")
+            return
+
+        logger.info(f"Generating combined profile plot...")
+        fig, ax = plt.subplots(figsize=(12, 7))  # Adjusted figure size
+        num_profiles = len(self.profile_data)
+        # Use a perceptually uniform colormap suitable for lines
+        colors = plt.cm.viridis(np.linspace(0, 1, num_profiles))
+
+        for i, (dem_name, data) in enumerate(self.profile_data.items()):
+            if "distance" in data and "elevation" in data:
+                ax.plot(
+                    data["distance"],
+                    data["elevation"],
+                    label=dem_name,
+                    color=colors[i],
+                    linewidth=1.5,  # Slightly thicker lines
+                )
+            else:
+                logger.warning(
+                    f"Missing distance or elevation data for '{dem_name}', skipping plot."
+                )
+
+        ax.set_title("Combined DEM Elevation Profiles along Transect")
+        ax.set_xlabel("Distance along Transect (m)")
+        ax.set_ylabel("Elevation (m)")
+        ax.legend(title="DEM Source")
+        ax.grid(True, linestyle="--", alpha=0.6)
+
+        # Construct output path relative to the main output directory
+        output_plot_path = self.settings.paths.output_dir / output_filename
+        output_plot_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure dir exists
+
+        try:
+            plt.savefig(str(output_plot_path), dpi=300, bbox_inches="tight")
+            logger.info(f"Combined profile plot saved to: {output_plot_path}")
+        except Exception as e:
+            logger.error(f"Failed to save combined profile plot: {e}")
+        finally:
+            plt.close(fig)  # Close the figure to free memory
 
 
 # --- Wrapper Function (for compatibility with workflow.py) ---
@@ -592,5 +716,12 @@ def generate_derived_products(
     except Exception as e:
         logger.error(f"An unexpected error occurred during Further Analysis: {e}")
         raise  # Re-raise the exception to halt the workflow if needed
+
+    # --- Generate the combined profile plot from extracted data ---
+    try:
+        generator.plot_combined_profiles()  # Call the new plotting method
+    except Exception as plot_e:
+        logger.error(f"Failed to generate combined profile plot: {plot_e}")
+        # Decide if this failure should halt the workflow or just be logged
 
     logger.info("--- Step 4: Further Analysis Complete ---")
