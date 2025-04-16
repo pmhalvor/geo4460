@@ -57,7 +57,7 @@ class InputLayersConfig(BaseModel):
     lake_layer: str = "lakes_polygon"
     points_layer: str = "elevation_point"
     # Field names (add flexibility)
-    contour_elevation_field: str = "hoeyde"
+    contour_elevation_field: str = "hoyde"
     point_elevation_field_candidates: list[str] = Field(
         default=[
             "RASTERVALU",
