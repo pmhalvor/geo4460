@@ -392,26 +392,29 @@ class DerivedProductGenerator:
 def generate_derived_products(
     settings: BaseModel,
     wbt: WhiteboxTools,
-    dem_interp_path: Path,
-    dem_topo_path: Path,
-    dem_toporaster_all_path: Optional[Path] = None,  # ANUDEM
-    dem_stream_burn_path: Optional[Path] = None,  # TIN + Stream Burn
+    # Updated DEM paths
+    dem_interp_contour_path: Optional[Path],
+    dem_topo_contour_path: Optional[Path],
+    dem_interp_points_path: Optional[Path],
+    dem_topo_points_path: Optional[Path],
+    dem_stream_burn_path: Optional[Path],
+    dem_toporaster_all_path: Optional[Path],  # Keep ANUDEM
     common_crs: Optional[str] = None,
-    common_extent: Optional[
-        tuple[float, float, float, float]
-    ] = None,  # Add common_extent
+    common_extent: Optional[tuple[float, float, float, float]] = None,
 ):
     """
     Wrapper function to generate derived raster and vector products using the
-    DerivedProductGenerator class. Processes interpolated, topo, ANUDEM, and Stream Burn DEMs if available.
+    DerivedProductGenerator class. Processes all available input DEMs.
 
     Args:
         settings: The application configuration object.
         wbt: Initialized WhiteboxTools object.
-        dem_interp_path: Path to the interpolated DEM raster.
-        dem_topo_path: Path to the TIN gridded DEM raster.
-        dem_toporaster_all_path: Optional path to the ANUDEM raster.
-        dem_stream_burn_path: Optional path to the TIN + Stream Burn raster.
+        dem_interp_contour_path: Path to Natural Neighbor (Contour) DEM (or None).
+        dem_topo_contour_path: Path to TIN Gridding (Contour) DEM (or None).
+        dem_interp_points_path: Path to Natural Neighbor (Points) DEM (or None).
+        dem_topo_points_path: Path to TIN Gridding (Points) DEM (or None).
+        dem_stream_burn_path: Path to Stream Burn (Contour TIN based) DEM (or None).
+        dem_toporaster_all_path: Path to ANUDEM (ArcGIS Pro) DEM (or None).
         common_crs: The common CRS string or object for output vector data.
         common_extent: Tuple representing the common bounding box (minx, miny, maxx, maxy).
 
@@ -429,79 +432,88 @@ def generate_derived_products(
     )
 
     try:
-        # Add core DEMs (assuming these are always required by the workflow calling this)
-        generator.add_dem("interpolated", dem_interp_path)
-        generator.add_dem("topo", dem_topo_path)
+        # Define mapping for clarity and consistency
+        dem_inputs = {
+            "interp_contour": dem_interp_contour_path,
+            "topo_contour": dem_topo_contour_path,
+            "interp_points": dem_interp_points_path,
+            "topo_points": dem_topo_points_path,
+            "stream_burn": dem_stream_burn_path,
+            "toporaster_all": dem_toporaster_all_path,
+        }
 
-        # Add optional DEMs if paths are provided and valid
-        if (
-            dem_toporaster_all_path and Path(dem_toporaster_all_path).exists()
-        ):  # Check existence after ensuring Path
-            # Use 'toporaster_all' to match the config input key
-            generator.add_dem(
-                "toporaster_all", Path(dem_toporaster_all_path)
-            )  # Ensure Path object
-        else:
-            logger.info(
-                "TopoToRaster (ANUDEM) path not provided or file not found. Skipping its derived products."
-            )
+        # Add available DEMs to the generator
+        for name, path in dem_inputs.items():
+            if path and Path(path).exists():
+                try:
+                    generator.add_dem(name, Path(path))
+                except (
+                    FileNotFoundError
+                ):  # Should not happen due to check, but belt-and-suspenders
+                    logger.warning(
+                        f"File not found for DEM '{name}' at {path} despite initial check."
+                    )
+            else:
+                logger.info(
+                    f"Path for DEM '{name}' not provided or file not found. Skipping."
+                )
 
-        if (
-            dem_stream_burn_path and Path(dem_stream_burn_path).exists()
-        ):  # Check existence after ensuring Path
-            # Use 'stream_burned' to match the config key dem_stream_burned_tif
-            generator.add_dem(
-                "stream_burned", Path(dem_stream_burn_path)
-            )  # Ensure Path object
-        else:
-            logger.info(
-                "TIN+Stream Burn path not provided or file not found. Skipping its derived products."
+        # Check if any DEMs were actually added
+        if not generator.processed_dems:
+            logger.error(
+                "No valid DEMs were added to the generator. Cannot create derived products."
             )
+            return  # Or raise an error
+
         # --- Generate products for each available DEM ---
+        # Define mappings from internal name to output config keys
+        contour_keys = {
+            "interp_contour": "contours_interpolated_contour_shp",
+            "topo_contour": "contours_topo_contour_shp",
+            "interp_points": "contours_interpolated_points_shp",
+            "topo_points": "contours_topo_points_shp",
+            "stream_burn": "contours_stream_burned_shp",
+            "toporaster_all": "contours_toporaster_all_shp",
+        }
+        hillshade_keys = {
+            "interp_contour": "hillshade_interpolated_contour_tif",  # Use renamed key
+            "topo_contour": "hillshade_topo_contour_tif",  # Use renamed key
+            "interp_points": "hillshade_interpolated_points_tif",
+            "topo_points": "hillshade_topo_points_tif",
+            "stream_burn": "hillshade_stream_burned_tif",
+            "toporaster_all": "hillshade_toporaster_all_tif",
+        }
+        slope_keys = {
+            "interp_contour": "slope_interpolated_contour_tif",  # Use renamed key
+            "topo_contour": "slope_topo_contour_tif",
+            "interp_points": "slope_interpolated_points_tif",
+            "topo_points": "slope_topo_points_tif",
+            "stream_burn": "slope_stream_burned_tif",
+            "toporaster_all": "slope_toporaster_all_tif",
+        }
 
-        # Interpolated DEM
-        logger.info("Processing Interpolated DEM...")
-        generator.get_contours("interpolated", "contours_interpolated_shp")
-        generator.get_hillshade("interpolated", "hillshade_interpolated_tif")
-        generator.get_slope("interpolated", "slope_interpolated_tif")
-
-        # Topo DEM
-        logger.info("Processing Topo DEM...")
-        generator.get_contours("topo", "contours_topo_shp")
-        generator.get_hillshade("topo", "hillshade_topo_tif")
-        generator.get_slope("topo", "slope_topo_tif")
-
-        # TopoToRaster (ANUDEM) (if available)
-        if "toporaster_all" in generator.processed_dems:
-            logger.info("Processing TopoToRaster (ANUDEM)...")
-            # Use the correct config keys added previously
+        # Generate Contours, Hillshade, Slope for each available DEM
+        for dem_name in generator.processed_dems:
+            logger.info(f"Processing DEM: {dem_name}...")
             try:
-                generator.get_contours("toporaster_all", "contours_toporaster_all_shp")
-                generator.get_hillshade(
-                    "toporaster_all", "hillshade_toporaster_all_tif"
-                )
-                generator.get_slope("toporaster_all", "slope_toporaster_all_tif")
+                if dem_name in contour_keys:
+                    generator.get_contours(dem_name, contour_keys[dem_name])
+                if dem_name in hillshade_keys:
+                    # TODO: Add new hillshade keys to config.py if needed
+                    if hasattr(settings.output_files, hillshade_keys[dem_name]):
+                        generator.get_hillshade(dem_name, hillshade_keys[dem_name])
+                    else:
+                        logger.warning(
+                            f"Skipping hillshade for {dem_name}: Output key '{hillshade_keys[dem_name]}' not found in config."
+                        )
+                if dem_name in slope_keys:
+                    generator.get_slope(dem_name, slope_keys[dem_name])
             except KeyError as e:
                 logger.warning(
-                    f"Skipping TopoToRaster product generation due to missing output key: {e}"
+                    f"Skipping product for {dem_name} due to missing output key: {e}"
                 )
             except Exception as e:
-                logger.error(f"Failed to generate products for TopoToRaster: {e}")
-
-        # TIN + Stream Burn (if available)
-        if "stream_burned" in generator.processed_dems:
-            logger.info("Processing TIN + Stream Burn DEM...")
-            # Use the correct config keys added previously
-            try:
-                generator.get_contours("stream_burned", "contours_stream_burned_shp")
-                generator.get_hillshade("stream_burned", "hillshade_stream_burned_tif")
-                generator.get_slope("stream_burned", "slope_stream_burned_tif")
-            except KeyError as e:
-                logger.warning(
-                    f"Skipping Stream Burn product generation due to missing output key: {e}"
-                )
-            except Exception as e:
-                logger.error(f"Failed to generate products for Stream Burn DEM: {e}")
+                logger.error(f"Failed to generate products for {dem_name}: {e}")
 
         # --- Specific Analyses (can be expanded or made more dynamic) ---
 
@@ -516,10 +528,12 @@ def generate_derived_products(
             )
             # Map internal DEM names to their profile output keys
             profile_output_keys = {
-                "interpolated": "profile_analysis_interp_html",
-                "topo": "profile_analysis_topo_html",
+                "interp_contour": "profile_analysis_interp_contour_html",
+                "topo_contour": "profile_analysis_topo_contour_html",
+                "interp_points": "profile_analysis_interp_points_html",
+                "topo_points": "profile_analysis_topo_points_html",
+                "stream_burn": "profile_analysis_stream_burned_html",
                 "toporaster_all": "profile_analysis_toporaster_all_html",
-                "stream_burned": "profile_analysis_stream_burned_html",
             }
             for dem_name in generator.processed_dems:
                 if dem_name in profile_output_keys:
@@ -547,13 +561,24 @@ def generate_derived_products(
                 "Skipping profile analysis for all DEMs: Transect line creation failed or was skipped."
             )
 
-        # Calculate DEM Difference (Topo - Interpolated by default)
-        logger.info("Calculating DEM Difference...")
-        # Uses the default behavior: last added ('topo') - second last added ('interpolated')
-        # Explicitly setting names for clarity, matching original script's intent (Topo - Interpolated)
-        generator.get_dem_diff(
-            dem1_name="topo", dem2_name="interpolated", output_key="dem_diff_tif"
-        )
+        # Calculate DEM Difference (TopoContour - InterpContour)
+        logger.info("Calculating DEM Difference (TopoContour - InterpContour)...")
+        if (
+            "topo_contour" in generator.processed_dems
+            and "interp_contour" in generator.processed_dems
+        ):
+            try:
+                generator.get_dem_diff(
+                    dem1_name="topo_contour",
+                    dem2_name="interp_contour",
+                    output_key="dem_diff_tif",  # Uses the renamed key from config
+                )
+            except Exception as diff_e:
+                logger.error(f"Failed to calculate DEM difference: {diff_e}")
+        else:
+            logger.warning(
+                "Skipping DEM difference: Required contour-based DEMs not available."
+            )
 
     except FileNotFoundError as e:
         logger.error(f"Input file not found during Further Analysis: {e}")

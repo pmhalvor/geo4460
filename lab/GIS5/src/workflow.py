@@ -81,12 +81,15 @@ def main():
         # --- Task 2: Generate DEMs ---
         logger.info("--- Starting Task 2: Generate DEMs ---")
         # Pass the river shapefile path for potential stream burning
+        # Pass the elevation points shapefile path instead of contours
+        # Pass both contour and elevation points paths and contour field
         generate_dems(
             settings=settings,
             wbt=wbt,
-            contour_shp_path=contour_shp_path,
-            contour_elev_field=contour_elev_field,
-            river_shp_path=river_shp_path,  # Pass the river path
+            contour_shp_path=contour_shp_path,  # Pass contour path
+            contour_elev_field=contour_elev_field,  # Pass contour field
+            elevation_points_shp_path=points_shp_path,  # Pass points path
+            river_shp_path=river_shp_path,
             stream_extract_threshold=(
                 settings.processing.stream_extract_threshold
                 if settings.processing.enable_stream_burning
@@ -95,45 +98,62 @@ def main():
         )
         logger.info("--- Finished Task 2: Generate DEMs ---")
 
-        # Get DEM paths for next tasks
-        dem_interp_path = output_files.get_full_path("dem_interpolated_tif", output_dir)
-        dem_topo_path = output_files.get_full_path("dem_topo_tif", output_dir)
-        # Get the path for the INPUT ArcGIS Pro TopoToRaster DEM from PathsConfig
-        dem_toporaster_all_path = (
-            settings.paths.toporaster_all_input_tif
-        )  # Use the direct path from settings
-        # Get the path for the generated stream burn DEM
+        # Get DEM paths for next tasks using updated filenames from config
+        dem_interp_contour_path = output_files.get_full_path(
+            "dem_interpolated_contour_tif", output_dir
+        )
+        dem_topo_contour_path = output_files.get_full_path(
+            "dem_topo_contour_tif", output_dir
+        )
+        dem_interp_points_path = output_files.get_full_path(
+            "dem_interpolated_points_tif", output_dir
+        )
+        dem_topo_points_path = output_files.get_full_path(
+            "dem_topo_points_tif", output_dir
+        )
         dem_stream_burn_path = output_files.get_full_path(
             "dem_stream_burned_tif", output_dir
         )
+        # Get the path for the INPUT ArcGIS Pro TopoToRaster DEM from PathsConfig
+        dem_toporaster_all_path = (
+            settings.paths.toporaster_all_input_tif
+        )  # Keep for comparison
 
         # --- Task 3: Quality Assessment ---
         logger.info("--- Starting Task 3: Quality Assessment ---")
+        # Pass all DEM paths to the updated function
         assess_dem_quality(
             settings=settings,
             wbt=wbt,
-            points_shp_path=points_shp_path,
-            dem_interp_path=dem_interp_path,
-            dem_topo_path=dem_topo_path,
+            points_shp_path=points_shp_path,  # Points file now has 'VALUE' field
+            dem_interp_contour_path=dem_interp_contour_path,
+            dem_topo_contour_path=dem_topo_contour_path,
+            dem_interp_points_path=dem_interp_points_path,
+            dem_topo_points_path=dem_topo_points_path,
+            dem_stream_burn_path=dem_stream_burn_path,
             dem_toporaster_all_path=dem_toporaster_all_path,
-            dem_stream_burn_path=dem_stream_burn_path,  # Added stream burn path
-            point_elev_field=point_elev_field,
+            point_elev_field="VALUE",  # Pass the standardized field name
         )
         logger.info("--- Finished Task 3: Quality Assessment ---")
 
         # --- Task 4: Generate Derived Products ---
+        # TODO: Update derive_products.py to handle the new DEMs
         logger.info("--- Starting Task 4: Generate Derived Products ---")
         # Call generate_derived_products, passing all relevant DEM paths
         # Transect creation and profile analysis are now handled within this function
+        # NOTE: This call needs to be updated after derive_products.py is modified
         generate_derived_products(
             settings=settings,
             wbt=wbt,
-            dem_interp_path=dem_interp_path,
-            dem_topo_path=dem_topo_path,
-            dem_toporaster_all_path=dem_toporaster_all_path,  # Pass ANUDEM path
-            dem_stream_burn_path=dem_stream_burn_path,  # Pass Stream Burn path
-            common_crs=common_crs,  # Pass the common CRS
-            common_extent=common_extent,  # Pass the common extent
+            # Pass the new DEM paths - requires update in derive_products.py
+            dem_interp_contour_path=dem_interp_contour_path,
+            dem_topo_contour_path=dem_topo_contour_path,
+            dem_interp_points_path=dem_interp_points_path,
+            dem_topo_points_path=dem_topo_points_path,
+            dem_stream_burn_path=dem_stream_burn_path,
+            dem_toporaster_all_path=dem_toporaster_all_path,
+            common_crs=common_crs,
+            common_extent=common_extent,
         )
         logger.info("--- Finished Task 4: Generate Derived Products ---")
 

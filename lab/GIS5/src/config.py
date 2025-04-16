@@ -79,24 +79,44 @@ class OutputFilesConfig(BaseModel):
     )
 
     # DEMs
-    dem_interpolated_tif: str = "dem_interpolated.tif"
-    dem_topo_tif: str = (
-        "dem_topo_to_raster.tif"  # Keep name consistent with original script
+    # Contour-based
+    dem_interpolated_contour_tif: str = (
+        "dem_interpolated_contour.tif"  # Renamed from dem_interpolated_tif
     )
+    dem_topo_contour_tif: str = "dem_topo_contour.tif"  # Renamed from dem_topo_tif
+    # Elevation Point-based
+    dem_interpolated_points_tif: str = "dem_interpolated_points.tif"  # New
+    dem_topo_points_tif: str = "dem_topo_points.tif"  # New
+    # Stream Burn (based on Contour TIN)
     dem_stream_burned_tif: str = (
-        "dem_stream_burned.tif"  # Output from GRASS stream burning
+        "dem_stream_burned.tif"  # Output from GRASS stream burning (based on Contour TIN)
     )
+
     # Hydrology outputs (potentially needed for long profile)
     d8_pointer_tif: str = "d8_pointer.tif"  # Assuming this is generated elsewhere
     streams_tif: str = "streams.tif"  # Assuming this is generated elsewhere
 
     # Analysis Outputs
-    hillshade_interpolated_tif: str = "hillshade_interpolated.tif"
-    hillshade_topo_tif: str = "hillshade_topo.tif"
-    slope_interpolated_tif: str = "slope_interpolated.tif"
-    slope_topo_tif: str = "slope_topo.tif"
-    contours_interpolated_shp: str = "contours_interpolated.shp"
-    contours_topo_shp: str = "contours_topo.shp"
+    hillshade_interpolated_contour_tif: str = (
+        "hillshade_interpolated_contour.tif"  # Renamed from hillshade_interpolated_tif
+    )
+    hillshade_topo_contour_tif: str = (
+        "hillshade_topo_contour.tif"  # Renamed from hillshade_topo_tif
+    )
+    hillshade_interpolated_points_tif: str = "hillshade_interpolated_points.tif"  # New
+    hillshade_topo_points_tif: str = "hillshade_topo_points.tif"  # New
+    slope_interpolated_contour_tif: str = (
+        "slope_interpolated_contour.tif"  # Renamed from slope_interpolated_tif
+    )
+    slope_topo_contour_tif: str = "slope_topo_contour.tif"  # Renamed
+    slope_interpolated_points_tif: str = "slope_interpolated_points.tif"  # New
+    slope_topo_points_tif: str = "slope_topo_points.tif"  # New
+    contours_interpolated_contour_shp: str = (
+        "contours_interpolated_contour.shp"  # Renamed
+    )
+    contours_topo_contour_shp: str = "contours_topo_contour.shp"  # Renamed
+    contours_interpolated_points_shp: str = "contours_interpolated_points.shp"  # New
+    contours_topo_points_shp: str = "contours_topo_points.shp"  # New
     contours_toporaster_all_shp: str = "contours_toporaster_all.shp"  # ANUDEM contours
     contours_stream_burned_shp: str = (
         "contours_stream_burned.shp"  # Stream Burn contours
@@ -109,10 +129,17 @@ class OutputFilesConfig(BaseModel):
     )
     slope_toporaster_all_tif: str = "slope_toporaster_all.tif"  # ANUDEM slope
     slope_stream_burned_tif: str = "slope_stream_burned.tif"  # Stream Burn slope
-    dem_diff_tif: str = "dem_difference.tif"  # Original difference (Topo - Interp)
+    # TODO: Add diffs for points-based DEMs if needed
+    dem_diff_tif: str = (
+        "dem_difference_contour.tif"  # Renamed (TopoContour - InterpContour)
+    )
     # Profile Analysis Outputs
-    profile_analysis_interp_html: str = "profile_interpolated.html"
-    profile_analysis_topo_html: str = "profile_topo.html"
+    profile_analysis_interp_contour_html: str = (
+        "profile_interpolated_contour.html"  # Renamed
+    )
+    profile_analysis_topo_contour_html: str = "profile_topo_contour.html"  # Renamed
+    profile_analysis_interp_points_html: str = "profile_interpolated_points.html"  # New
+    profile_analysis_topo_points_html: str = "profile_topo_points.html"  # New
     profile_analysis_toporaster_all_html: str = "profile_toporaster_all.html"
     profile_analysis_stream_burned_html: str = "profile_stream_burned.html"
 

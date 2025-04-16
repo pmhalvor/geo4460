@@ -154,9 +154,54 @@ class FeatureDataLoader:
                 self.loaded_gdfs["lakes"].to_file(
                     self.output_files.get_full_path("lake_shp", self.output_dir)
                 )
-                self.loaded_gdfs["points"].to_file(
-                    self.output_files.get_full_path("points_shp", self.output_dir)
-                )
+
+                # --- Standardize Points Elevation Field ---
+                if "points" in self.loaded_gdfs:
+                    points_gdf_ref = self.loaded_gdfs["points"]  # Get reference to GDF
+                    self._log(
+                        f"Attempting to standardize points elevation field. Identified field: '{self.point_elev_field}'. Columns before: {list(points_gdf_ref.columns)}"
+                    )
+
+                    if (
+                        self.point_elev_field
+                        and self.point_elev_field in points_gdf_ref.columns
+                    ):
+                        self._log(
+                            f"Renaming points elevation field '{self.point_elev_field}' to 'VALUE'."
+                        )
+                        # Rename inplace or reassign back to the dictionary
+                        self.loaded_gdfs["points"] = points_gdf_ref.rename(
+                            columns={self.point_elev_field: "VALUE"}
+                        )
+                        # Update the stored field name to reflect the change
+                        self.point_elev_field = (
+                            "VALUE"  # Crucial for quality assessment step
+                        )
+                        self._log(
+                            f"Field renamed. Columns are now: {list(self.loaded_gdfs['points'].columns)}"
+                        )
+                    elif self.point_elev_field:
+                        self._log(
+                            f"Identified point elevation field '{self.point_elev_field}' not found in points GDF columns. Skipping rename.",
+                            level="warning",
+                        )
+                    else:
+                        self._log(
+                            "Point elevation field was not identified previously. Cannot rename to 'VALUE'.",
+                            level="warning",
+                        )
+
+                    # Save the potentially modified DataFrame from the dictionary
+                    self.loaded_gdfs["points"].to_file(
+                        self.output_files.get_full_path("points_shp", self.output_dir)
+                    )
+                else:
+                    self._log(
+                        "Points GeoDataFrame not found in loaded data. Cannot standardize or save.",
+                        level="error",
+                    )
+                # --- End Standardization ---
+
             self._log("...Shapefile saving done.")
             return True
         except Exception as e:
@@ -252,15 +297,22 @@ class FeatureDataLoader:
             logger.error("--- Data Loading Failed (Extent Calculation) ---")
             return None, None, None, None, None
 
-        if not self._save_shapefiles():
-            # Log error but potentially continue if needed elsewhere? For now, treat as failure.
-            logger.error("--- Data Loading Failed (Shapefile Saving) ---")
-            return None, None, None, None, None
-
+        # --- Identify fields BEFORE saving ---
         if not self._identify_elevation_fields():
             # Log error but return potentially partial results if needed?
             # For now, treat as failure if contour field is missing.
             logger.error("--- Data Loading Failed (Elevation Field Identification) ---")
+            # If contour field is essential, fail completely
+            if self.contour_elev_field is None:
+                return None, None, None, None, None
+            # Otherwise, maybe allow continuation with warning? Let's stick to stricter failure for now.
+            # return None, None, None, None, None # Re-enable if strict failure needed
+        # --- End Identify fields ---
+
+        # --- Save shapefiles AFTER identifying fields (so renaming works) ---
+        if not self._save_shapefiles():
+            # Log error but potentially continue if needed elsewhere? For now, treat as failure.
+            logger.error("--- Data Loading Failed (Shapefile Saving) ---")
             # If contour field is essential, fail completely
             if self.contour_elev_field is None:
                 return None, None, None, None, None

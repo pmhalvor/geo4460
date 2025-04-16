@@ -259,12 +259,14 @@ class QualityAssessor:
             self._log("Initial points GeoDataFrame not loaded.", level="error")
             return False
 
-        # Define target column names
+        # Define target column names (max 10 chars for Shapefile)
         target_col_map = {
-            "dem_interp": "DEMNN",
-            "dem_topo": "DEMContour",
-            "dem_toporaster_all": "ANUDEM",
-            "dem_stream_burn": "DEMStream",
+            "interp_contour": "DEMNNCont",  # Natural Neighbor (Contour)
+            "topo_contour": "DEMTINCont",  # TIN (Contour)
+            "interp_points": "DEMNNPts",  # Natural Neighbor (Points)
+            "topo_points": "DEMTINPts",  # TIN (Points)
+            "stream_burn": "DEMStream",  # Stream Burn (based on Contour TIN)
+            "toporaster_all": "ANUDEM",  # ANUDEM (ArcGIS Pro) - Keep for comparison
         }
 
         # Start with the GDF prepared in prepare_points_layer
@@ -441,10 +443,12 @@ class QualityAssessor:
 
         # Map internal keys back to user-friendly names for the report
         dem_type_map = {
-            "dem_interp": "Natural Neighbor",
-            "dem_topo": "TIN from Contours",
-            "dem_toporaster_all": "ANUDEM (ArcGIS Pro)",
-            "dem_stream_burn": "TIN + Stream Burn",
+            "interp_contour": "Natural Neighbor (Contour)",
+            "topo_contour": "TIN Gridding (Contour)",
+            "interp_points": "Natural Neighbor (Points)",
+            "topo_points": "TIN Gridding (Points)",
+            "stream_burn": "Stream Burn (Contour TIN based)",
+            "toporaster_all": "ANUDEM (ArcGIS Pro)",  # Keep for comparison
         }
 
         # Calculate RMSE for each column that survived the cleaning
@@ -564,37 +568,44 @@ def assess_dem_quality(
     settings: BaseModel,
     wbt: WhiteboxTools,
     points_shp_path: Path,
-    dem_interp_path: Optional[Path],  # Allow None
-    dem_topo_path: Optional[Path],  # Allow None
-    dem_toporaster_all_path: Optional[Path],  # Allow None
-    dem_stream_burn_path: Optional[Path],  # Allow None
+    # Paths for the 5 generated DEMs + ANUDEM
+    dem_interp_contour_path: Optional[Path],
+    dem_topo_contour_path: Optional[Path],
+    dem_interp_points_path: Optional[Path],
+    dem_topo_points_path: Optional[Path],
+    dem_stream_burn_path: Optional[Path],
+    dem_toporaster_all_path: Optional[Path],  # Keep ANUDEM for comparison
     point_elev_field: Optional[str],
 ) -> Optional[pd.DataFrame]:  # Return DataFrame or None
     """
     Performs quality assessment by calculating RMSE between DEMs and elevation points.
-    This function now wraps the QualityAssessor class.
+    This function now wraps the QualityAssessor class and handles multiple DEM inputs.
 
     Args:
         settings: The application configuration object.
         wbt: Initialized WhiteboxTools object.
-        points_shp_path: Path to the original elevation points shapefile.
-        dem_interp_path: Path to the interpolated DEM raster (or None).
-        dem_topo_path: Path to the TIN gridded DEM raster (or None).
-        dem_toporaster_all_path: Path to the TopoToRaster (ArcGIS Pro) DEM raster (or None).
-        dem_stream_burn_path: Path to the TIN + Stream Burn DEM raster (or None).
-        point_elev_field: The name of the elevation field in the points shapefile.
+        points_shp_path: Path to the original elevation points shapefile (with 'VALUE' field).
+        dem_interp_contour_path: Path to Natural Neighbor (Contour) DEM (or None).
+        dem_topo_contour_path: Path to TIN Gridding (Contour) DEM (or None).
+        dem_interp_points_path: Path to Natural Neighbor (Points) DEM (or None).
+        dem_topo_points_path: Path to TIN Gridding (Points) DEM (or None).
+        dem_stream_burn_path: Path to Stream Burn (Contour TIN based) DEM (or None).
+        dem_toporaster_all_path: Path to ANUDEM (ArcGIS Pro) DEM (or None).
+        point_elev_field: The name of the elevation field ('VALUE') in the points shapefile.
 
     Returns:
         Optional[pd.DataFrame]: DataFrame containing RMSE results, or None if assessment fails.
     """
 
     # Structure the DEM paths into the dictionary expected by the class
-    # Ensure keys match those used internally (target_col_map, dem_type_map)
+    # Keys should match those used in target_col_map and dem_type_map within the class
     dem_paths = {
-        "dem_interp": dem_interp_path,
-        "dem_topo": dem_topo_path,
-        "dem_toporaster_all": dem_toporaster_all_path,
-        "dem_stream_burn": dem_stream_burn_path,
+        "interp_contour": dem_interp_contour_path,
+        "topo_contour": dem_topo_contour_path,
+        "interp_points": dem_interp_points_path,
+        "topo_points": dem_topo_points_path,
+        "stream_burn": dem_stream_burn_path,
+        "toporaster_all": dem_toporaster_all_path,  # Keep ANUDEM
     }
 
     assessor = QualityAssessor(
