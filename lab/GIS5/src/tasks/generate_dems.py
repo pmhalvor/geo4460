@@ -7,6 +7,10 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+# Add imports at the top of generate_dems.py
+import rasterio
+import geopandas as gpd
+
 from pydantic import BaseModel
 from whitebox import WhiteboxTools
 
@@ -88,8 +92,42 @@ class InterpolationDemGenerator(BaseDemGenerator):
 
     # Removed output_path_key property
 
+    def _set_crs(self, vector_path: Path, raster_path: Path) -> bool:
+        """Sets the raster CRS based on the vector CRS."""
+        try:
+            vector_gdf = gpd.read_file(vector_path)
+            target_crs = vector_gdf.crs
+            if not target_crs:
+                self._log(
+                    f"Could not read CRS from input vector: {vector_path.name}",
+                    level="warning",
+                    indent=3,
+                )
+                return False  # Cannot proceed without target CRS
+
+            self._log(
+                f"Attempting to set CRS for {raster_path.name} to {target_crs.to_string()}",
+                indent=3,
+            )
+            with rasterio.open(str(raster_path), "r+") as ds:
+                if ds.crs != target_crs:
+                    ds.crs = target_crs
+                    self._log(f"Successfully set CRS for {raster_path.name}", indent=3)
+                else:
+                    self._log(
+                        f"CRS for {raster_path.name} is already correct.", indent=3
+                    )
+            return True
+        except Exception as e:
+            self._log(
+                f"Failed to set CRS for {raster_path.name}: {e}",
+                level="error",
+                indent=3,
+            )
+            return False
+
     def generate(self, input_points_path: Path, output_dem_path: Path) -> bool:
-        """Generates DEM using Natural Neighbour interpolation."""
+        """Generates DEM using Natural Neighbour interpolation and sets CRS."""
         self._log(f"Method: {self.method_name}...", indent=1)
         self._log(f"  Input points: {input_points_path.name}", indent=2)
         self._log(f"  Output DEM: {output_dem_path.name}", indent=2)
@@ -117,6 +155,16 @@ class InterpolationDemGenerator(BaseDemGenerator):
                 raise FileNotFoundError(
                     f"Interpolated DEM file not created: {output_dem_path}"
                 )
+
+            if not self._set_crs(input_points_path, output_dem_path):
+                self._log(
+                    f"CRS setting failed for {output_dem_path.name}, but DEM was generated.",
+                    level="warning",
+                    indent=2,
+                )
+                # Decide if this should be a hard failure
+                # return False # Uncomment to make CRS setting failure critical
+
             return True
         except Exception as e:
             self._log(f"{self.method_name} failed: {e}", level="error", indent=1)
@@ -132,8 +180,42 @@ class TinGriddingDemGenerator(BaseDemGenerator):
 
     # Removed output_path_key property
 
+    def _set_crs(self, vector_path: Path, raster_path: Path) -> bool:
+        """Sets the raster CRS based on the vector CRS."""
+        try:
+            vector_gdf = gpd.read_file(vector_path)
+            target_crs = vector_gdf.crs
+            if not target_crs:
+                self._log(
+                    f"Could not read CRS from input vector: {vector_path.name}",
+                    level="warning",
+                    indent=3,
+                )
+                return False  # Cannot proceed without target CRS
+
+            self._log(
+                f"Attempting to set CRS for {raster_path.name} to {target_crs.to_string()}",
+                indent=3,
+            )
+            with rasterio.open(str(raster_path), "r+") as ds:
+                if ds.crs != target_crs:
+                    ds.crs = target_crs
+                    self._log(f"Successfully set CRS for {raster_path.name}", indent=3)
+                else:
+                    self._log(
+                        f"CRS for {raster_path.name} is already correct.", indent=3
+                    )
+            return True
+        except Exception as e:
+            self._log(
+                f"Failed to set CRS for {raster_path.name}: {e}",
+                level="error",
+                indent=3,
+            )
+            return False
+
     def generate(self, input_points_path: Path, output_dem_path: Path) -> bool:
-        """Generates DEM using TIN Gridding."""
+        """Generates DEM using TIN Gridding and sets CRS."""
         self._log(f"Method: {self.method_name}...", indent=1)
         self._log(f"  Input points: {input_points_path.name}", indent=2)
         self._log(f"  Output DEM: {output_dem_path.name}", indent=2)
@@ -161,6 +243,16 @@ class TinGriddingDemGenerator(BaseDemGenerator):
                 raise FileNotFoundError(
                     f"TIN Gridding DEM file not created: {output_dem_path}"
                 )
+
+            if not self._set_crs(input_points_path, output_dem_path):
+                self._log(
+                    f"CRS setting failed for {output_dem_path.name}, but DEM was generated.",
+                    level="warning",
+                    indent=2,
+                )
+                # Decide if this should be a hard failure
+                # return False # Uncomment to make CRS setting failure critical
+
             return True
         except Exception as e:
             self._log(f"{self.method_name} failed: {e}", level="error", indent=1)
@@ -548,14 +640,37 @@ class DemGenerationWorkflow:
 
     # Re-introduce _prepare_contour_points method
     def _prepare_contour_points(self) -> bool:
-        """Generates the shared intermediate contour points shapefile from contour lines."""
+        """
+        Generates the shared intermediate contour points shapefile from contour lines,
+        ensuring the CRS is preserved.
+        """
         self._log("Preparing intermediate contour points with elevation...", indent=1)
         try:
+            # --- Read CRS from original contours FIRST ---
+            original_contour_gdf = gpd.read_file(self.contour_shp_path)
+            target_crs = original_contour_gdf.crs
+            if not target_crs:
+                self._log(
+                    f"Could not read CRS from original contour file: {self.contour_shp_path.name}",
+                    level="warning",
+                    indent=2,
+                )
+                # Decide if this is critical. If contours *must* have CRS, return False
+                # return False
+            else:
+                self._log(
+                    f"Original contour CRS identified as: {target_crs.to_string()}",
+                    indent=2,
+                )
+            # --- End Read CRS ---
+
             # Convert contour lines to raster
             self._log(
                 f"Converting contour lines to raster ({self.contour_raster_path.name})...",
                 indent=2,
             )
+            # Note: WBT vector_lines_to_raster might not preserve CRS in the output raster's metadata
+            # in a way rasterio can easily read without a .prj file sometimes.
             self.wbt.vector_lines_to_raster(
                 i=str(self.contour_shp_path),
                 output=str(self.contour_raster_path),
@@ -573,6 +688,7 @@ class DemGenerationWorkflow:
                 f"Converting contour raster to points ({self.contour_points_with_value_path.name})...",
                 indent=2,
             )
+            # This WBT tool likely does *not* write CRS info to the output shapefile
             self.wbt.raster_to_vector_points(
                 i=str(self.contour_raster_path),
                 output=str(self.contour_points_with_value_path),
@@ -582,9 +698,41 @@ class DemGenerationWorkflow:
                     "Intermediate contour points file with values not created."
                 )
             self._log(
-                f"Intermediate contour points saved: {self.contour_points_with_value_path}",
+                f"Intermediate contour points generated: {self.contour_points_with_value_path}",
                 indent=2,
             )
+
+            # --- Explicitly set CRS on the intermediate points shapefile ---
+            if target_crs:
+                self._log(
+                    f"Setting CRS for {self.contour_points_with_value_path.name} to {target_crs.to_string()}...",
+                    indent=3,
+                )
+                try:
+                    points_gdf = gpd.read_file(self.contour_points_with_value_path)
+                    points_gdf.crs = target_crs
+                    # Overwrite the shapefile with the CRS set
+                    points_gdf.to_file(
+                        self.contour_points_with_value_path, driver="ESRI Shapefile"
+                    )
+                    self._log(
+                        f"Successfully set CRS for {self.contour_points_with_value_path.name}",
+                        indent=3,
+                    )
+                except Exception as crs_err:
+                    self._log(
+                        f"Failed to set CRS on intermediate points file {self.contour_points_with_value_path.name}: {crs_err}",
+                        level="error",
+                        indent=3,
+                    )
+                    return False  # Fail if we can't set the CRS
+            else:
+                self._log(
+                    f"Skipping CRS setting for {self.contour_points_with_value_path.name} as original contour CRS was not found.",
+                    level="warning",
+                    indent=3,
+                )
+            # --- End Set CRS ---
 
             self._log("Intermediate contour points preparation successful.", indent=1)
             return True

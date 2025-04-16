@@ -143,10 +143,10 @@ class QualityAssessor:
 
     def prepare_points_layer(self) -> bool:
         """
-        Copies the original points shapefile to a working location.
+        Copies the original points shapefile to a working location and loads it.
 
         Returns:
-            bool: True if copying was successful, False otherwise.
+            bool: True if copying and loading was successful, False otherwise.
         """
         self._log(
             f"Copying original points shapefile to {self.points_extracted_path} for modification..."
@@ -154,6 +154,7 @@ class QualityAssessor:
         try:
             # Ensure output directory exists
             self.points_extracted_path.parent.mkdir(parents=True, exist_ok=True)
+            # Read first, then write to ensure GDF is loaded
             points_orig_gdf = gpd.read_file(str(self.points_shp_path))
             points_orig_gdf.to_file(
                 str(self.points_extracted_path), driver="ESRI Shapefile"
@@ -162,7 +163,7 @@ class QualityAssessor:
             self.points_extracted_gdf = points_orig_gdf  # Store initial GDF
             return True
         except Exception as e:
-            self._log(f"Failed to copy points shapefile: {e}", level="error")
+            self._log(f"Failed to copy or load points shapefile: {e}", level="error")
             # Potentially log traceback here
             return False
 
@@ -171,17 +172,20 @@ class QualityAssessor:
     def extract_dem_points(self) -> bool:
         """
         Extracts elevation values from available DEMs to the points layer.
-        Handles renaming of extracted columns. Accumulates results in memory
-        and saves only once at the end.
+        Handles CRS reprojection of points for sampling if necessary.
+        Accumulates results in memory and saves only once at the end.
 
         Returns:
             bool: True if the overall process completes, potentially with some
                   individual DEM extraction failures (logged).
-                  False if a critical error occurs (e.g., initial save fails,
+                  False if a critical error occurs (e.g., initial load fails,
                   shapefile becomes unreadable, final save fails).
         """
         if self.points_extracted_gdf is None:
-            self._log("Initial points GeoDataFrame not loaded.", level="error")
+            self._log(
+                "Initial points GeoDataFrame not loaded (prepare_points_layer likely failed).",
+                level="error",
+            )
             return False
 
         # Define target column names (max 10 chars for Shapefile)
@@ -197,24 +201,9 @@ class QualityAssessor:
         # Start with the GDF prepared in prepare_points_layer
         # This GDF will accumulate the results in memory
         current_gdf = self.points_extracted_gdf.copy()
-        # Preserve the original index for reliable column assignment later
-        current_gdf_initial_index = current_gdf.index.copy()
+        points_crs = current_gdf.crs  # Get points CRS once
 
         extraction_errors = False  # Track if any non-critical errors occur
-
-        # Extract point coordinates once (ensure they match the raster CRS if necessary)
-        # Assuming points_extracted_gdf is already in the correct CRS or reprojection is handled elsewhere
-        try:
-            point_coords = [(p.x, p.y) for p in current_gdf.geometry]
-            if not point_coords:
-                self._log(
-                    "No valid point geometries found in the input GeoDataFrame.",
-                    level="error",
-                )
-                return False
-        except Exception as e:
-            self._log(f"Failed to extract point coordinates: {e}", level="error")
-            return False
 
         for dem_key, is_available in self.available_layers.items():
             if not is_available:
@@ -231,41 +220,82 @@ class QualityAssessor:
             try:
                 # 1. Open the DEM raster
                 with rasterio.open(dem_path) as src:
-                    # Optional: Check CRS match between points and raster
-                    if current_gdf.crs != src.crs:
-                        self._log(
-                            f"  Warning: CRS mismatch between points ({current_gdf.crs}) and raster {dem_key} ({src.crs}). Results may be incorrect.",
-                            level="warning",
-                        )
-                        # Consider adding reprojection logic here if needed
+                    raster_crs = src.crs
+                    point_coords_for_sampling = []
 
-                    # 2. Sample raster values at point locations
-                    # self._log(f"  Sampling raster values at {len(point_coords)} points...") # Keep less verbose
-                    # sample_gen returns a generator, convert to list
-                    extracted_values = [val[0] for val in src.sample(point_coords)]
+                    # 2. Check CRS and reproject points *if necessary* for sampling
+                    if points_crs != raster_crs:
+                        self._log(
+                            f"  CRS mismatch: Points ({points_crs}) vs Raster ({raster_crs}). Reprojecting points for sampling.",
+                            level="info",  # Changed from warning as it's now handled
+                        )
+                        try:
+                            # Reproject points geometry *temporarily* for sampling
+                            points_geom_reprojected = current_gdf.geometry.to_crs(
+                                raster_crs
+                            )
+                            point_coords_for_sampling = [
+                                (p.x, p.y) for p in points_geom_reprojected
+                            ]
+                        except Exception as reproj_err:
+                            self._log(
+                                f"  ERROR during temporary point reprojection for {dem_key}: {reproj_err}",
+                                level="error",
+                            )
+                            self.extracted_col_names[dem_key] = None
+                            extraction_errors = True
+                            continue  # Skip to next DEM if reprojection fails
+                    else:
+                        # CRS match, use original coordinates
+                        point_coords_for_sampling = [
+                            (p.x, p.y) for p in current_gdf.geometry
+                        ]
+
+                    if not point_coords_for_sampling:
+                        self._log(
+                            f"  No valid point coordinates available for sampling {dem_key} (original or reprojected).",
+                            level="error",
+                        )
+                        self.extracted_col_names[dem_key] = None
+                        extraction_errors = True
+                        continue  # Skip to next DEM
+
+                    # 3. Sample raster values at point locations (using original or reprojected coords)
+                    # self._log(f"  Sampling raster values at {len(point_coords_for_sampling)} points...") # Keep less verbose
+                    extracted_values = [
+                        val[0] for val in src.sample(point_coords_for_sampling)
+                    ]
                     # self._log(f"  Sampling complete. Extracted {len(extracted_values)} values.") # Keep less verbose
 
-                # 3. Add extracted values to the main GeoDataFrame
+                # 4. Add extracted values to the main GeoDataFrame
                 if len(extracted_values) == len(current_gdf):
-                    current_gdf[target_col_name] = extracted_values
+                    # Use .loc with the original index to ensure correct assignment
+                    current_gdf.loc[:, target_col_name] = extracted_values
                     self.extracted_col_names[dem_key] = target_col_name  # Mark success
                     self._log(
                         f"  Added column '{target_col_name}' to in-memory GeoDataFrame."
                     )
                 else:
                     self._log(
-                        f"  Error: Number of extracted values ({len(extracted_values)}) does not match number of points ({len(current_gdf)}). Skipping column add.",
+                        f"  Error: Number of extracted values ({len(extracted_values)}) does not match number of points ({len(current_gdf)}). Skipping column add for {dem_key}.",
                         level="error",
                     )
                     self.extracted_col_names[dem_key] = None  # Mark failure
                     extraction_errors = True
 
-            except Exception as e:
+            except rasterio.RasterioIOError as rio_err:
                 self._log(
-                    f"Failed during Rasterio extraction for {dem_key}: {e}",
+                    f"  ERROR opening or reading raster {dem_key}: {rio_err}",
                     level="error",
                 )
-                self._log(f"Traceback: {traceback.format_exc()}", level="debug")
+                self.extracted_col_names[dem_key] = None
+                extraction_errors = True
+            except Exception as e:
+                self._log(
+                    f"  Failed during Rasterio extraction process for {dem_key}: {e}",
+                    level="error",
+                )
+                self._log(f"  Traceback: {traceback.format_exc()}", level="debug")
                 self.extracted_col_names[dem_key] = None  # Mark as failed for this DEM
                 extraction_errors = True  # Mark that an error occurred
 
@@ -276,7 +306,7 @@ class QualityAssessor:
                 level="warning",
             )
 
-        # 4. Save the final accumulated GDF (in memory) to the *actual* target shapefile ONCE
+        # 5. Save the final accumulated GDF (in memory) to the *actual* target shapefile ONCE
         try:
             self._log(
                 f"Saving final accumulated points data to {self.points_extracted_path}..."
@@ -471,9 +501,9 @@ class QualityAssessor:
                 return None
 
             if not self.extract_dem_points():
-                # This indicates a critical file I/O error during extraction
+                # This indicates a critical file I/O error during extraction or final save
                 logger.error(
-                    "--- Quality Assessment Failed (Critical Error During Point Extraction) ---"
+                    "--- Quality Assessment Failed (Critical Error During Point Extraction/Save) ---"
                 )
                 return None
             # If it returns True, some extractions might have failed non-critically, proceed to verify
