@@ -21,10 +21,11 @@ class PathsConfig(BaseModel):
         / "output_py"  # Use a fixed name for pro, date name for dev
         # / f"output_py_{datetime.now().strftime('%Y%m%d_%H%M')}"
     )
-    # Add path for the input TopoRaster file, relative to data_dir
+    # Path for the input TopoToRaster (ANUDEM) file, relative to data_dir
     toporaster_all_input_tif: FilePath = Field(
         default_factory=lambda: (BASE_DIR / "GIS5_datafiles") / "TopoRaster_all.tif"
     )
+    # transect_input_shp removed, as we will create it based on coordinates
     grass_executable_path: Optional[str] = (
         "/Applications/GRASS-8.4.app/Contents/MacOS/Grass.sh"  # Optional path to GRASS GIS executable
     )
@@ -53,7 +54,7 @@ class InputLayersConfig(BaseModel):
     contour_layer: str = "contour_arc"
     river_layer: str = "rivers_arc"
     lake_layer: str = "lakes_polygon"
-    points_layer: str = "elevationp_point"
+    points_layer: str = "elevationp_point"  # TODO remove extra p (depend on input data)
     # Field names (add flexibility)
     contour_elevation_field: str = "HOEYDE"
     point_elevation_field_candidates: list[str] = Field(
@@ -85,6 +86,9 @@ class OutputFilesConfig(BaseModel):
     dem_stream_burned_tif: str = (
         "dem_stream_burned.tif"  # Output from GRASS stream burning
     )
+    # Hydrology outputs (potentially needed for long profile)
+    d8_pointer_tif: str = "d8_pointer.tif"  # Assuming this is generated elsewhere
+    streams_tif: str = "streams.tif"  # Assuming this is generated elsewhere
 
     # Analysis Outputs
     hillshade_interpolated_tif: str = "hillshade_interpolated.tif"
@@ -93,7 +97,27 @@ class OutputFilesConfig(BaseModel):
     slope_topo_tif: str = "slope_topo.tif"
     contours_interpolated_shp: str = "contours_interpolated.shp"
     contours_topo_shp: str = "contours_topo.shp"
+    contours_toporaster_all_shp: str = "contours_toporaster_all.shp"  # ANUDEM contours
+    contours_stream_burned_shp: str = (
+        "contours_stream_burned.shp"  # Stream Burn contours
+    )
+    hillshade_toporaster_all_tif: str = (
+        "hillshade_toporaster_all.tif"  # ANUDEM hillshade
+    )
+    hillshade_stream_burned_tif: str = (
+        "hillshade_stream_burned.tif"  # Stream Burn hillshade
+    )
+    slope_toporaster_all_tif: str = "slope_toporaster_all.tif"  # ANUDEM slope
+    slope_stream_burned_tif: str = "slope_stream_burned.tif"  # Stream Burn slope
     dem_diff_tif: str = "dem_difference.tif"  # Original difference (Topo - Interp)
+    # Profile Analysis Outputs
+    profile_analysis_interp_html: str = "profile_interpolated.html"
+    profile_analysis_topo_html: str = "profile_topo.html"
+    profile_analysis_toporaster_all_html: str = "profile_toporaster_all.html"
+    profile_analysis_stream_burned_html: str = "profile_stream_burned.html"
+
+    # Transect file created by the script
+    transect_created_shp: str = "transect_generated.shp"
 
     # Quality Assessment
     rmse_csv: str = "rmse_comparison.csv"
@@ -116,6 +140,15 @@ class ProcessingConfig(BaseModel):
     enable_stream_burning: bool = True  # Set to True to run GRASS stream burning
     stream_burn_value: float = -10.0  # Value (in elevation units) to burn streams by
     stream_extract_threshold: int = 1  # Threshold for r.stream.extract (cells)
+    # Transect Definition (CRS will be taken from input data)
+    transect_start_coords: tuple[float, float] = (
+        550000,
+        6630000,
+    )  # Example coordinates (X, Y)
+    transect_end_coords: tuple[float, float] = (
+        570000,
+        6645000,
+    )  # Example coordinates (X, Y)
 
 
 class AppConfig(BaseModel):

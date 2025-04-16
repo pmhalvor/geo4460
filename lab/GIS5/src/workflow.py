@@ -103,9 +103,17 @@ def main():
         )
 
         # --- Task 4: Generate Derived Products ---
-        # Note: Derived products are currently only generated for interp and topo DEMs.
-        # If derived products are needed for TopoRaster_all, this section would also need modification.
-        generate_derived_products(settings, wbt, dem_interp_path, dem_topo_path)
+        # Call generate_derived_products, passing all relevant DEM paths
+        # Transect creation and profile analysis are now handled within this function
+        generate_derived_products(
+            settings=settings,
+            wbt=wbt,
+            dem_interp_path=dem_interp_path,
+            dem_topo_path=dem_topo_path,
+            dem_toporaster_all_path=dem_toporaster_all_path,  # Pass ANUDEM path
+            dem_stream_burn_path=dem_stream_burn_path,  # Pass Stream Burn path
+            common_crs=common_crs,  # Pass the common CRS
+        )
 
     except FileNotFoundError as fnf_error:
         print("\n--- Workflow Halted: Required file not found ---")
