@@ -477,14 +477,21 @@ class DerivedProductGenerator:
         # Use a perceptually uniform colormap suitable for lines
         colors = plt.cm.viridis(np.linspace(0, 1, num_profiles))
 
+        # Access the map from settings
+        dem_type_map = self.settings.output_files.dem_type_map
+
         for i, (dem_name, data) in enumerate(self.profile_data.items()):
             if "distance" in data and "elevation" in data:
+                # Use the mapped name for the legend, fallback to the key
+                legend_label = dem_type_map.get(dem_name, dem_name)
                 ax.plot(
                     data["distance"],
                     data["elevation"],
-                    label=dem_name,
+                    label=legend_label,
+                    linestyle="--",
+                    alpha=0.75,
                     color=colors[i],
-                    linewidth=1.5,  # Slightly thicker lines
+                    linewidth=1.75,
                 )
             else:
                 logger.warning(

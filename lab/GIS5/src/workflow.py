@@ -137,11 +137,9 @@ def main():
         logger.info("--- Finished Task 3: Quality Assessment ---")
 
         # --- Task 4: Generate Derived Products ---
-        # TODO: Update derive_products.py to handle the new DEMs
         logger.info("--- Starting Task 4: Generate Derived Products ---")
         # Call generate_derived_products, passing all relevant DEM paths
         # Transect creation and profile analysis are now handled within this function
-        # NOTE: This call needs to be updated after derive_products.py is modified
         generate_derived_products(
             settings=settings,
             wbt=wbt,

@@ -63,6 +63,7 @@ class InputLayersConfig(BaseModel):
             "RASTERVALU",
             "POINT_Z",
             "Elevation",
+            "elevation",
             "Z_Value",
             "Value",
             "HOEYDE",
@@ -159,6 +160,19 @@ class OutputFilesConfig(BaseModel):
     rmse_csv: str = "rmse_comparison.csv"
     points_extracted_shp: str = "points_with_dem_values.shp"
 
+    # --- Shared Mappings ---
+    # Map internal DEM keys to user-friendly names for reports and plots
+    dem_type_map: dict[str, str] = Field(
+        default={
+            "interp_contour": "Natural Neighbor (Contour)",
+            "topo_contour": "TIN Gridding (Contour)",
+            "interp_points": "Natural Neighbor (Points)",
+            "topo_points": "TIN Gridding (Points)",
+            "stream_burn": "Stream Burn (Contour TIN based)",
+            "toporaster_all": "ANUDEM (ArcGIS Pro)",
+        }
+    )
+
     # Method to get full path
     def get_full_path(self, filename_attr: str, output_dir: Path) -> Path:
         """Returns the full path for a given output filename attribute."""
@@ -170,12 +184,12 @@ class ProcessingConfig(BaseModel):
     """Parameters controlling the processing steps."""
 
     output_cell_size: float = 50.0  # Meters
-    contour_interval: float = 10.0  # Meters
+    contour_interval: float = 50.0  # Meters
     wbt_verbose: bool = False  # Control WhiteboxTools verbosity
     # Stream Burning Config
     enable_stream_burning: bool = True  # Set to True to run GRASS stream burning
     stream_burn_value: float = -10.0  # Value (in elevation units) to burn streams by
-    stream_extract_threshold: int = 1  # Threshold for r.stream.extract (cells)
+    stream_extract_threshold: int = 500  # Threshold for r.stream.extract (cells)
     # Transect is now generated dynamically based on data extent
 
 

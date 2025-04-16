@@ -3,8 +3,13 @@ import numpy as np
 import pandas as pd
 import traceback
 import logging
+import shutil
+import os
+import tempfile
+import rasterio
+import rasterio.sample
 from pathlib import Path
-from whitebox import WhiteboxTools
+from whitebox import WhiteboxTools  # Keep for other potential uses, but not extraction
 from math import sqrt
 from sklearn.metrics import mean_squared_error
 from typing import Optional, Dict, Tuple, List, Set
@@ -161,99 +166,19 @@ class QualityAssessor:
             # Potentially log traceback here
             return False
 
-    def _rename_extracted_column(
-        self,
-        gdf: gpd.GeoDataFrame,
-        cols_before_extraction: Set[str],
-        target_col_name: str,
-        dem_key: str,  # For logging
-    ) -> Tuple[gpd.GeoDataFrame, Optional[str]]:
-        """
-        Robustly renames the newly added column after WBT extraction.
-
-        Args:
-            gdf: The GeoDataFrame after extraction.
-            cols_before_extraction: Set of column names before the extraction.
-            target_col_name: The desired final name for the extracted column.
-            dem_key: The key identifying the DEM (e.g., 'dem_interp') for logging.
-
-        Returns:
-            Tuple containing the updated GeoDataFrame and the final column name (or None if failed).
-        """
-        cols_after_extraction = set(gdf.columns)
-        new_cols = list(cols_after_extraction - cols_before_extraction)
-        final_col_name = None
-
-        if len(new_cols) == 1:
-            added_col = new_cols[0]
-            if added_col == target_col_name:
-                self._log(
-                    f"Extracted column already named '{target_col_name}' for {dem_key}."
-                )
-                final_col_name = target_col_name
-            else:
-                gdf.rename(columns={added_col: target_col_name}, inplace=True)
-                self._log(
-                    f"Renamed extracted column '{added_col}' to '{target_col_name}' for {dem_key}"
-                )
-                final_col_name = target_col_name
-        elif (
-            "VALUE1" in cols_after_extraction
-            and target_col_name not in cols_after_extraction
-        ):
-            # Fallback: WBT sometimes defaults to VALUE1
-            if "VALUE1" in new_cols:
-                self._log(
-                    f"Attempting to rename newly added 'VALUE1' to '{target_col_name}' for {dem_key}.",
-                    level="warning",
-                )
-            else:
-                # VALUE1 exists but wasn't the *only* new column, or wasn't new at all. Risky rename.
-                self._log(
-                    f"Attempting to rename existing 'VALUE1' to '{target_col_name}' for {dem_key} as new column not uniquely identified.",
-                    level="warning",
-                )
-            try:
-                # Check if target name already exists before renaming VALUE1
-                if target_col_name in gdf.columns:
-                    self._log(
-                        f"Target column '{target_col_name}' already exists. Cannot rename 'VALUE1' to it.",
-                        level="error",
-                    )
-                    final_col_name = None
-                else:
-                    gdf.rename(columns={"VALUE1": target_col_name}, inplace=True)
-                    final_col_name = target_col_name
-            except Exception as e:
-                self._log(
-                    f"Failed to rename 'VALUE1' to {target_col_name}: {e}",
-                    level="error",
-                )
-                final_col_name = None  # Renaming failed
-        elif target_col_name in cols_after_extraction:
-            self._log(
-                f"Target column '{target_col_name}' already exists for {dem_key}. Assuming it's correct.",
-                level="info",
-            )
-            final_col_name = target_col_name  # Column already has the target name
-        else:
-            # This case happens if >1 new column was added, or 0 new columns were added and VALUE1 wasn't there either.
-            self._log(
-                f"Could not identify or rename column for {dem_key}. New cols: {new_cols}. All cols: {list(cols_after_extraction)}",
-                level="warning",
-            )
-            final_col_name = None  # Flag that renaming failed
-
-        return gdf, final_col_name
+    # _rename_extracted_column is no longer needed with the rasterio approach
 
     def extract_dem_points(self) -> bool:
         """
         Extracts elevation values from available DEMs to the points layer.
-        Handles renaming of extracted columns. Saves intermediate results.
+        Handles renaming of extracted columns. Accumulates results in memory
+        and saves only once at the end.
 
         Returns:
-            bool: True if extraction process completed without critical file I/O errors,
-                  False otherwise. Individual DEM extraction failures are logged but don't cause False return.
+            bool: True if the overall process completes, potentially with some
+                  individual DEM extraction failures (logged).
+                  False if a critical error occurs (e.g., initial save fails,
+                  shapefile becomes unreadable, final save fails).
         """
         if self.points_extracted_gdf is None:
             self._log("Initial points GeoDataFrame not loaded.", level="error")
@@ -270,86 +195,113 @@ class QualityAssessor:
         }
 
         # Start with the GDF prepared in prepare_points_layer
+        # This GDF will accumulate the results in memory
         current_gdf = self.points_extracted_gdf.copy()
+        # Preserve the original index for reliable column assignment later
+        current_gdf_initial_index = current_gdf.index.copy()
 
-        # Ensure the initial state is saved before any extractions
+        extraction_errors = False  # Track if any non-critical errors occur
+
+        # Extract point coordinates once (ensure they match the raster CRS if necessary)
+        # Assuming points_extracted_gdf is already in the correct CRS or reprojection is handled elsewhere
         try:
-            current_gdf.to_file(
-                str(self.points_extracted_path), driver="ESRI Shapefile"
-            )
+            point_coords = [(p.x, p.y) for p in current_gdf.geometry]
+            if not point_coords:
+                self._log(
+                    "No valid point geometries found in the input GeoDataFrame.",
+                    level="error",
+                )
+                return False
         except Exception as e:
-            self._log(f"Failed to save initial copied points file: {e}", level="error")
-            return False  # Critical error
+            self._log(f"Failed to extract point coordinates: {e}", level="error")
+            return False
 
         for dem_key, is_available in self.available_layers.items():
             if not is_available:
-                self.extracted_col_names[dem_key] = (
-                    None  # Mark as unavailable (file didn't exist)
-                )
-                continue  # Skip this DEM
+                self.extracted_col_names[dem_key] = None
+                continue  # Skip DEM if file wasn't found initially
 
-            dem_path = self.dem_paths.get(
-                dem_key
-            )  # Path is guaranteed to be non-None if is_available is True
-            target_col_name = target_col_map.get(
-                dem_key, f"DEM_{dem_key}"
-            )  # Default name if not mapped
+            dem_path = self.dem_paths.get(dem_key)
+            target_col_name = target_col_map.get(dem_key, f"DEM_{dem_key}")
 
-            self._log(f"Extracting values from {dem_key} ({dem_path.name})...")
-            cols_before = set(current_gdf.columns)
+            self._log(
+                f"Processing extraction for {dem_key} ({dem_path.name}) using Rasterio..."
+            )
 
             try:
-                # WBT modifies the points file in place
-                self.wbt.extract_raster_values_at_points(
-                    inputs=str(dem_path),
-                    points=str(self.points_extracted_path),
-                )
+                # 1. Open the DEM raster
+                with rasterio.open(dem_path) as src:
+                    # Optional: Check CRS match between points and raster
+                    if current_gdf.crs != src.crs:
+                        self._log(
+                            f"  Warning: CRS mismatch between points ({current_gdf.crs}) and raster {dem_key} ({src.crs}). Results may be incorrect.",
+                            level="warning",
+                        )
+                        # Consider adding reprojection logic here if needed
 
-                # Read the modified file back
-                current_gdf = gpd.read_file(str(self.points_extracted_path))
+                    # 2. Sample raster values at point locations
+                    # self._log(f"  Sampling raster values at {len(point_coords)} points...") # Keep less verbose
+                    # sample_gen returns a generator, convert to list
+                    extracted_values = [val[0] for val in src.sample(point_coords)]
+                    # self._log(f"  Sampling complete. Extracted {len(extracted_values)} values.") # Keep less verbose
 
-                # Rename the newly added column
-                current_gdf, final_col_name = self._rename_extracted_column(
-                    current_gdf, cols_before, target_col_name, dem_key
-                )
-                self.extracted_col_names[dem_key] = (
-                    final_col_name  # Store the result of renaming (can be None)
-                )
-
-                # Save the GDF state after this extraction/rename attempt
-                current_gdf.to_file(
-                    str(self.points_extracted_path), driver="ESRI Shapefile"
-                )
+                # 3. Add extracted values to the main GeoDataFrame
+                if len(extracted_values) == len(current_gdf):
+                    current_gdf[target_col_name] = extracted_values
+                    self.extracted_col_names[dem_key] = target_col_name  # Mark success
+                    self._log(
+                        f"  Added column '{target_col_name}' to in-memory GeoDataFrame."
+                    )
+                else:
+                    self._log(
+                        f"  Error: Number of extracted values ({len(extracted_values)}) does not match number of points ({len(current_gdf)}). Skipping column add.",
+                        level="error",
+                    )
+                    self.extracted_col_names[dem_key] = None  # Mark failure
+                    extraction_errors = True
 
             except Exception as e:
                 self._log(
-                    f"Failed during extraction or renaming for {dem_key}: {e}",
+                    f"Failed during Rasterio extraction for {dem_key}: {e}",
                     level="error",
                 )
+                self._log(f"Traceback: {traceback.format_exc()}", level="debug")
                 self.extracted_col_names[dem_key] = None  # Mark as failed for this DEM
-                # Attempt to reload the file to potentially continue with the next DEM
-                try:
-                    current_gdf = gpd.read_file(
-                        str(self.points_extracted_path)
-                    )  # Reload last known saved state
-                    self._log(
-                        "Reloaded points file state after error.", level="warning"
-                    )
-                except Exception as read_e:
-                    self._log(
-                        f"CRITICAL: Failed to reload points file after error ({read_e}). Aborting further extractions.",
-                        level="error",
-                    )
-                    self.points_extracted_gdf = (
-                        current_gdf  # Store potentially partial GDF
-                    )
-                    return False  # Critical error if we can't read the file
+                extraction_errors = True  # Mark that an error occurred
 
-        self.points_extracted_gdf = current_gdf  # Store final GDF after all attempts
-        self._log(
-            f"Extraction process finished. Final points data potentially updated in: {self.points_extracted_path}"
-        )
-        return True
+        # --- After the loop ---
+        if extraction_errors:
+            self._log(
+                "Extraction process encountered errors for some DEMs using Rasterio. Proceeding with available data.",
+                level="warning",
+            )
+
+        # 4. Save the final accumulated GDF (in memory) to the *actual* target shapefile ONCE
+        try:
+            self._log(
+                f"Saving final accumulated points data to {self.points_extracted_path}..."
+            )
+            # Ensure the output directory exists before final save
+            self.points_extracted_path.parent.mkdir(parents=True, exist_ok=True)
+            # Ensure the index is handled correctly on final save
+            current_gdf.to_file(
+                str(self.points_extracted_path), index=False, driver="ESRI Shapefile"
+            )
+            self._log("Final save complete.")
+            self.points_extracted_gdf = (
+                current_gdf  # Update the instance variable with the final GDF
+            )
+            return (
+                True  # Indicate overall process finished, possibly with partial results
+            )
+        except Exception as e:
+            self._log(
+                f"CRITICAL: Failed to save final points GeoDataFrame to {self.points_extracted_path}: {e}",
+                level="error",
+            )
+            # Store the GDF we attempted to save, even if save failed
+            self.points_extracted_gdf = current_gdf
+            return False  # Critical failure on final save
 
     def verify_preprocessed_gdf(self) -> Tuple[bool, List[str]]:
         """
@@ -441,15 +393,8 @@ class QualityAssessor:
         measured = points_valid_gdf[self.point_elev_field]
         rmse_results_list = []  # Use a list of dicts
 
-        # Map internal keys back to user-friendly names for the report
-        dem_type_map = {
-            "interp_contour": "Natural Neighbor (Contour)",
-            "topo_contour": "TIN Gridding (Contour)",
-            "interp_points": "Natural Neighbor (Points)",
-            "topo_points": "TIN Gridding (Points)",
-            "stream_burn": "Stream Burn (Contour TIN based)",
-            "toporaster_all": "ANUDEM (ArcGIS Pro)",  # Keep for comparison
-        }
+        # Access the map from the settings object
+        dem_type_map = self.settings.output_files.dem_type_map
 
         # Calculate RMSE for each column that survived the cleaning
         for dem_key, col_name in self.extracted_col_names.items():
