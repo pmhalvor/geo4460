@@ -1,8 +1,6 @@
-import os
 from pathlib import Path
 from pydantic import BaseModel, Field, DirectoryPath, FilePath
 from typing import Optional
-from datetime import datetime
 
 # Determine the base directory relative to this config file
 # config.py is in src/, so BASE_DIR is the parent of src/
@@ -28,7 +26,7 @@ class PathsConfig(BaseModel):
         default_factory=lambda: (BASE_DIR / "GIS5_datafiles") / "TopoRaster_all.tif"
     )
     grass_executable_path: Optional[str] = (
-        "/Applications/GRASS-8.4.app/Contents/MacOS/grass"  # Optional path to GRASS GIS executable
+        "/Applications/GRASS-8.4.app/Contents/MacOS/Grass.sh"  # Optional path to GRASS GIS executable
     )
 
     # Ensure directories exist or create them if needed (especially output)
