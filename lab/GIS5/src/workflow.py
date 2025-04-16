@@ -85,6 +85,10 @@ def main():
         dem_toporaster_all_path = (
             settings.paths.toporaster_all_input_tif
         )  # Use the direct path from settings
+        # Get the path for the generated stream burn DEM
+        dem_stream_burn_path = output_files.get_full_path(
+            "dem_stream_burned_tif", output_dir
+        )
 
         # --- Task 3: Quality Assessment ---
         assess_dem_quality(
@@ -93,7 +97,8 @@ def main():
             points_shp_path=points_shp_path,
             dem_interp_path=dem_interp_path,
             dem_topo_path=dem_topo_path,
-            dem_toporaster_all_path=dem_toporaster_all_path,  # Pass the new DEM path
+            dem_toporaster_all_path=dem_toporaster_all_path,
+            dem_stream_burn_path=dem_stream_burn_path,  # Added stream burn path
             point_elev_field=point_elev_field,
         )
 
@@ -103,15 +108,15 @@ def main():
         generate_derived_products(settings, wbt, dem_interp_path, dem_topo_path)
 
     except FileNotFoundError as fnf_error:
-        print(f"\n--- Workflow Halted: Required file not found ---")
+        print("\n--- Workflow Halted: Required file not found ---")
         print(f"Error: {fnf_error}")
         sys.exit(1)
     except ValueError as val_error:
-        print(f"\n--- Workflow Halted: Data error ---")
+        print("\n--- Workflow Halted: Data error ---")
         print(f"Error: {val_error}")
         sys.exit(1)
     except Exception as e:
-        print(f"\n--- Workflow Halted: An unexpected error occurred ---")
+        print("\n--- Workflow Halted: An unexpected error occurred ---")
         print(f"Error Type: {type(e).__name__}")
         print(f"Error Details: {e}")
         # Consider adding traceback logging here for debugging
