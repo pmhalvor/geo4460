@@ -20,7 +20,8 @@ class PathsConfig(BaseModel):
     )
     output_dir: Path = Field(
         default_factory=lambda: BASE_DIR
-        / f"output_py_{datetime.now().strftime('%Y%m%d_%H%M')}"
+        / "output_py"  # Use a fixed name for pro, date name for dev
+        # / f"output_py_{datetime.now().strftime('%Y%m%d_%H%M')}"
     )
     # Add path for the input TopoRaster file, relative to data_dir
     toporaster_all_input_tif: FilePath = Field(

@@ -435,9 +435,9 @@ class QualityAssessor:
 
         # Map internal keys back to user-friendly names for the report
         dem_type_map = {
-            "dem_interp": "Natural Neighbour",
-            "dem_topo": "TIN (Contours)",
-            "dem_toporaster_all": "TopoToRaster (ArcGIS Pro)",
+            "dem_interp": "Natural Neighbor",
+            "dem_topo": "TIN from Contours",
+            "dem_toporaster_all": "ANUDEM (ArcGIS Pro)",
             "dem_stream_burn": "TIN + Stream Burn",
         }
 
