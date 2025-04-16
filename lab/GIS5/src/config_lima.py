@@ -140,7 +140,15 @@ class ProcessingConfig(BaseModel):
     enable_stream_burning: bool = True  # Set to True to run GRASS stream burning
     stream_burn_value: float = -10.0  # Value (in elevation units) to burn streams by
     stream_extract_threshold: int = 1  # Threshold for r.stream.extract (cells)
-    # Transect is now generated dynamically based on data extent
+    # Transect Definition (CRS will be taken from input data)
+    transect_start_coords: tuple[float, float] = (
+        550000,
+        6630000,
+    )  # Example coordinates (X, Y)
+    transect_end_coords: tuple[float, float] = (
+        570000,
+        6645000,
+    )  # Example coordinates (X, Y)
 
 
 class AppConfig(BaseModel):

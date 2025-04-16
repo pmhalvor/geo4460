@@ -1,6 +1,7 @@
 import sys
-from whitebox import WhiteboxTools
 import time
+import logging
+from whitebox import WhiteboxTools
 
 # Ensure the src directory is in the Python path if running as a script
 # This might not be needed if run as a module or with `python -m lab.GIS5.src.workflow`
@@ -24,36 +25,50 @@ except ImportError:
     from tasks.derive_products import generate_derived_products
 
 
+# --- Logging Setup ---
+# Configure logging to output to console with a specific format
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+# Get a logger for this module
+logger = logging.getLogger(__name__)
+
+
 def main():
     """Runs the complete DEM analysis workflow."""
     start_time = time.time()
-    print("\n--- Starting DEM Analysis Workflow ---")
+    logger.info("--- Starting DEM Analysis Workflow ---")
 
     # --- Initialization ---
-    print("Initializing WhiteboxTools...")
+    logger.info("Initializing WhiteboxTools...")
     try:
         wbt = WhiteboxTools()
-        print(f"  - WhiteboxTools version: {wbt.version()}")
+        logger.info(f"  - WhiteboxTools version: {wbt.version()}")
         # Optional: Set working directory if needed, though outputs are explicitly pathed
         # wbt.work_dir = str(settings.paths.output_dir / "wbt_temp")
-        # print(f"  - WhiteboxTools working directory set to: {wbt.work_dir}")
+        # logger.info(f"  - WhiteboxTools working directory set to: {wbt.work_dir}")
         wbt.set_verbose_mode(settings.processing.wbt_verbose)
     except Exception as e:
-        print(f"Error initializing WhiteboxTools: {e}")
-        print(
+        logger.error(f"Error initializing WhiteboxTools: {e}")
+        logger.error(
             "Ensure WhiteboxTools executable is correctly installed and in the system PATH."
         )
         sys.exit(1)
 
     # --- Setup Output Directory ---
     # Config handles creation, but setup_output_dir ensures it's clean
+    logger.info(f"Setting up output directory: {settings.paths.output_dir}")
     setup_output_dir(settings.paths.output_dir)
 
     try:
         # --- Task 1: Load Data ---
+        logger.info("--- Starting Task 1: Load and Prepare Data ---")
         loaded_gdfs, common_extent, common_crs, contour_elev_field, point_elev_field = (
             load_and_prepare_data(settings)
         )
+        logger.info("--- Finished Task 1: Load and Prepare Data ---")
 
         # Get necessary paths for subsequent tasks
         output_dir = settings.paths.output_dir
@@ -64,6 +79,7 @@ def main():
         river_shp_path = output_files.get_full_path("river_shp", output_dir)
 
         # --- Task 2: Generate DEMs ---
+        logger.info("--- Starting Task 2: Generate DEMs ---")
         # Pass the river shapefile path for potential stream burning
         generate_dems(
             settings=settings,
@@ -77,6 +93,7 @@ def main():
                 else None
             ),
         )
+        logger.info("--- Finished Task 2: Generate DEMs ---")
 
         # Get DEM paths for next tasks
         dem_interp_path = output_files.get_full_path("dem_interpolated_tif", output_dir)
@@ -91,6 +108,7 @@ def main():
         )
 
         # --- Task 3: Quality Assessment ---
+        logger.info("--- Starting Task 3: Quality Assessment ---")
         assess_dem_quality(
             settings=settings,
             wbt=wbt,
@@ -101,8 +119,10 @@ def main():
             dem_stream_burn_path=dem_stream_burn_path,  # Added stream burn path
             point_elev_field=point_elev_field,
         )
+        logger.info("--- Finished Task 3: Quality Assessment ---")
 
         # --- Task 4: Generate Derived Products ---
+        logger.info("--- Starting Task 4: Generate Derived Products ---")
         # Call generate_derived_products, passing all relevant DEM paths
         # Transect creation and profile analysis are now handled within this function
         generate_derived_products(
@@ -113,28 +133,27 @@ def main():
             dem_toporaster_all_path=dem_toporaster_all_path,  # Pass ANUDEM path
             dem_stream_burn_path=dem_stream_burn_path,  # Pass Stream Burn path
             common_crs=common_crs,  # Pass the common CRS
+            common_extent=common_extent,  # Pass the common extent
         )
+        logger.info("--- Finished Task 4: Generate Derived Products ---")
 
     except FileNotFoundError as fnf_error:
-        print("\n--- Workflow Halted: Required file not found ---")
-        print(f"Error: {fnf_error}")
+        logger.error("--- Workflow Halted: Required file not found ---")
+        logger.error(f"Error: {fnf_error}")
         sys.exit(1)
     except ValueError as val_error:
-        print("\n--- Workflow Halted: Data error ---")
-        print(f"Error: {val_error}")
+        logger.error("--- Workflow Halted: Data error ---")
+        logger.error(f"Error: {val_error}")
         sys.exit(1)
     except Exception as e:
-        print("\n--- Workflow Halted: An unexpected error occurred ---")
-        print(f"Error Type: {type(e).__name__}")
-        print(f"Error Details: {e}")
-        # Consider adding traceback logging here for debugging
-        # import traceback
-        # traceback.print_exc()
+        logger.error("--- Workflow Halted: An unexpected error occurred ---")
+        # Use exc_info=True to include traceback information automatically
+        logger.error(f"Error Details: {e}", exc_info=True)
         sys.exit(1)
 
     end_time = time.time()
-    print("\n--- Workflow Script Finished ---")
-    print(f"Total execution time: {end_time - start_time:.2f} seconds")
+    logger.info("--- Workflow Script Finished ---")
+    logger.info(f"Total execution time: {end_time - start_time:.2f} seconds")
 
 
 if __name__ == "__main__":

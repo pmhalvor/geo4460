@@ -24,10 +24,15 @@ class DerivedProductGenerator:
         wbt: Initialized WhiteboxTools object.
         processed_dems: Dictionary storing names and paths of processed DEMs.
         common_crs: The common Coordinate Reference System derived from input data.
+        common_extent: The common bounding box (minx, miny, maxx, maxy) of input data.
     """
 
     def __init__(
-        self, settings: BaseModel, wbt: WhiteboxTools, common_crs: Optional[str] = None
+        self,
+        settings: BaseModel,
+        wbt: WhiteboxTools,
+        common_crs: Optional[str] = None,
+        common_extent: Optional[tuple[float, float, float, float]] = None,
     ):
         """
         Initializes the DerivedProductGenerator.
@@ -36,16 +41,20 @@ class DerivedProductGenerator:
             settings: The application configuration object.
             wbt: Initialized WhiteboxTools object.
             common_crs: The common CRS string (e.g., 'EPSG:XXXX') or object for outputs.
+            common_extent: Tuple representing the common bounding box (minx, miny, maxx, maxy).
         """
         self.settings = settings
         self.wbt = wbt
         self.common_crs = common_crs  # Store the common CRS
+        self.common_extent = common_extent  # Store the common extent
         self.processed_dems: Dict[str, Path] = {}
         self.wbt.set_verbose_mode(self.settings.processing.wbt_verbose)
         logger.info("DerivedProductGenerator initialized.")
         if not common_crs:
+            logger.warning("Common CRS not provided. Transect creation might fail.")
+        if not common_extent:
             logger.warning(
-                "Common CRS not provided to DerivedProductGenerator. Transect creation might fail or use default."
+                "Common Extent not provided. Dynamic transect creation will fail."
             )
 
     def _get_output_path(self, key: str) -> Path:
@@ -74,44 +83,47 @@ class DerivedProductGenerator:
 
     def _create_transect_line(self) -> Optional[Path]:
         """
-        Creates a transect line shapefile based on coordinates in settings,
+        Creates a transect line shapefile dynamically based on the common_extent,
         using the common CRS provided during initialization.
 
         Returns:
-            Path to the created shapefile, or None if coordinates/CRS are missing
+            Path to the created shapefile, or None if extent/CRS are missing
             or an error occurs.
         """
-        logger.info("Attempting to create transect line...")
-        try:
-            start_coords = self.settings.processing.transect_start_coords
-            end_coords = self.settings.processing.transect_end_coords
-            # Use the common CRS stored in the instance
-            crs = self.common_crs
-            output_key = "transect_created_shp"  # Key for the output filename in OutputFilesConfig
-            logger.info(
-                f"  - Using Start: {start_coords}, End: {end_coords}, CRS: {crs}"
-            )  # Log details
-        except AttributeError as e:
+        logger.info("Attempting to create transect line dynamically from extent...")
+        crs = self.common_crs
+        extent = self.common_extent
+        output_key = "transect_created_shp"
+
+        if not crs or not extent:
             logger.warning(
-                f"Skipping transect creation: Missing required setting ({e}). Ensure transect_start_coords, transect_end_coords are in ProcessingConfig and transect_created_shp is in OutputFilesConfig."
+                "Skipping dynamic transect creation: Missing common CRS or extent."
             )
             return None
 
-        # Check if all necessary components are present
-        # Modified check: Ensure coords are tuples and crs is truthy (exists and not None/empty)
-        if not (
-            isinstance(start_coords, tuple)
-            and len(start_coords) == 2
-            and isinstance(end_coords, tuple)
-            and len(end_coords) == 2
-            and crs
-        ):  # Check if crs is truthy (accepts string or CRS object)
+        if not (isinstance(extent, tuple) and len(extent) == 4):
             logger.warning(
-                "Skipping transect creation: Invalid or missing coordinates/CRS."
+                f"Skipping dynamic transect creation: Invalid extent format ({extent}). Expected (minx, miny, maxx, maxy)."
             )
             return None
 
         output_path = self._get_output_path(output_key)
+        minx, miny, maxx, maxy = extent
+        width = maxx - minx
+        height = maxy - miny
+
+        # Calculate start/end points for a diagonal line, inset by 10%
+        inset_factor = 0.10
+        start_x = minx + width * inset_factor
+        start_y = miny + height * inset_factor
+        end_x = maxx - width * inset_factor
+        end_y = maxy - height * inset_factor
+        start_coords = (start_x, start_y)
+        end_coords = (end_x, end_y)
+
+        logger.info(
+            f"  - Calculated Transect: Start={start_coords}, End={end_coords}, CRS={crs}"
+        )
 
         try:
             # Create the LineString geometry
@@ -278,6 +290,7 @@ class DerivedProductGenerator:
         dem_str = str(dem_path)
         lines_str = str(transect_path)
         output_str = str(output_path)
+
         # Log the parameters being passed to the tool
         logger.info(
             f"    - Calling wbt.profile with: surface='{dem_str}', lines='{lines_str}', output='{output_str}'"
@@ -383,7 +396,10 @@ def generate_derived_products(
     dem_topo_path: Path,
     dem_toporaster_all_path: Optional[Path] = None,  # ANUDEM
     dem_stream_burn_path: Optional[Path] = None,  # TIN + Stream Burn
-    common_crs: Optional[str] = None,  # Add common_crs parameter
+    common_crs: Optional[str] = None,
+    common_extent: Optional[
+        tuple[float, float, float, float]
+    ] = None,  # Add common_extent
 ):
     """
     Wrapper function to generate derived raster and vector products using the
@@ -397,17 +413,20 @@ def generate_derived_products(
         dem_toporaster_all_path: Optional path to the ANUDEM raster.
         dem_stream_burn_path: Optional path to the TIN + Stream Burn raster.
         common_crs: The common CRS string or object for output vector data.
+        common_extent: Tuple representing the common bounding box (minx, miny, maxx, maxy).
 
     Raises:
-        FileNotFoundError: If input DEMs or required transect file are missing.
+        FileNotFoundError: If input DEMs are missing.
         Exception: If any processing step fails.
     """
     logger.info(
         "\n--- Starting Step 4: Further Analysis (Contours, Hillshade, Slope, Profile, Difference) ---"
     )
 
-    # Pass common_crs to the generator
-    generator = DerivedProductGenerator(settings, wbt, common_crs=common_crs)
+    # Pass common_crs and common_extent to the generator
+    generator = DerivedProductGenerator(
+        settings, wbt, common_crs=common_crs, common_extent=common_extent
+    )
 
     try:
         # Add core DEMs (assuming these are always required by the workflow calling this)
@@ -486,12 +505,15 @@ def generate_derived_products(
 
         # --- Specific Analyses (can be expanded or made more dynamic) ---
 
-        # Create Transect and Generate Profile Analysis for all available DEMs
+        # Create Transect (dynamically) and Generate Profile Analysis for all available DEMs
         logger.info("Creating Transect and Generating Profile Analyses...")
-        # Create the transect line first using the new method
+        # Create the transect line dynamically using the extent stored in the generator
         created_transect_path = generator._create_transect_line()
 
         if created_transect_path and created_transect_path.exists():
+            logger.info(
+                f"Using dynamically generated transect: {created_transect_path}"
+            )
             # Map internal DEM names to their profile output keys
             profile_output_keys = {
                 "interpolated": "profile_analysis_interp_html",
