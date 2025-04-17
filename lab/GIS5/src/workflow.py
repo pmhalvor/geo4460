@@ -3,11 +3,6 @@ import time
 import logging
 from whitebox import WhiteboxTools
 
-# Ensure the src directory is in the Python path if running as a script
-# This might not be needed if run as a module or with `python -m lab.GIS5.src.workflow`
-# import os
-# sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 try:
     from src.config import settings
     from src.utils import setup_output_dir
@@ -15,14 +10,18 @@ try:
     from src.tasks.generate_dems import generate_dems
     from src.tasks.quality_assessment import assess_dem_quality
     from src.tasks.derive_products import generate_derived_products
+    from src.tasks.prepare_raw_data import prepare_raw_data
 except ImportError:
     # Fallback for running the script directly from the src directory
     from config import settings
     from utils import setup_output_dir
+
+    # Add fallback import for the new task as well
     from tasks.load_data import load_and_prepare_data
     from tasks.generate_dems import generate_dems
     from tasks.quality_assessment import assess_dem_quality
     from tasks.derive_products import generate_derived_products
+    from tasks.prepare_raw_data import prepare_raw_data
 
 
 # --- Logging Setup ---
@@ -63,14 +62,43 @@ def main():
     setup_output_dir(settings.paths.output_dir)
 
     try:
-        # --- Task 1: Load Data ---
-        logger.info("--- Starting Task 1: Load and Prepare Data ---")
-        loaded_gdfs, common_extent, common_crs, contour_elev_field, point_elev_field = (
-            load_and_prepare_data(settings)
-        )
-        logger.info("--- Finished Task 1: Load and Prepare Data ---")
+        # --- Optional Task: Prepare Raw Data ---
+        # Check the generalized flag in settings
+        if settings.processing.run_prepare_raw_data:
+            # Check if the required input GDB path is configured (or if using GPKG, check that path)
+            if (
+                settings.paths.input_raw_gdb
+            ):  # Or potentially a new config var like settings.paths.input_raw_gpkg
+                logger.info("--- Starting Optional Task: Prepare Raw Data ---")
+                # Call the renamed function with the main settings object
+                # Ensure the input path used by prepare_raw_data matches the configured input (GDB or GPKG)
+                prepare_raw_data(settings)
+                logger.info("--- Finished Optional Task: Prepare Raw Data ---")
+            else:
+                logger.warning("--- Skipping Optional Task: Prepare Raw Data ---")
+                logger.warning(
+                    "Reason: 'run_prepare_raw_data' is True, but 'paths.input_raw_gdb' (or equivalent) is not configured."
+                )
+        else:
+            logger.info(
+                "--- Skipping Optional Task: Prepare Raw Data (disabled in config) ---"
+            )
 
-        # Get necessary paths for subsequent tasks
+        # --- Task 1: Load Data (Main DEM Workflow) ---
+        logger.info(
+            "--- Starting Task 1: Load and Prepare Data (Main DEM Workflow) ---"
+        )
+        # This task likely uses different input data specified in the main config sections
+        loaded_gdfs, common_extent, common_crs, contour_elev_field, point_elev_field = (
+            load_and_prepare_data(
+                settings
+            )  # This uses settings like settings.paths.input_gdb etc.
+        )
+        logger.info(
+            "--- Finished Task 1: Load and Prepare Data (Main DEM Workflow) ---"
+        )
+
+        # Get necessary paths for subsequent tasks (Main DEM Workflow)
         output_dir = settings.paths.output_dir
         output_files = settings.output_files
         contour_shp_path = output_files.get_full_path("contour_shp", output_dir)

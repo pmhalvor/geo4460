@@ -31,12 +31,28 @@ class PathsConfig(BaseModel):
         "/Applications/GRASS-8.4.app/Contents/MacOS/Grass.sh"  # Optional path to GRASS GIS executable
     )
 
+    # --- Paths specific to the raw data preparation task ---
+    # Define the input GDB containing the raw/unprocessed data
+    input_raw_gdb: Optional[FilePath] = Field(
+        default=None,  # Default to None, requires explicit setting if task is run
+        description="Path to the input Geodatabase with raw data for preparation. NOTE: Due to driver limitations (see prepare_raw_data.py), this task currently requires this path to point to a MANUALLY CONVERTED GeoPackage (.gpkg) or similar open format, NOT the original .gdb.",
+    )
+    # Define the output directory for the prepared data
+    output_dir_prepared: Path = Field(
+        default_factory=lambda: BASE_DIR / "output_prepared_data",
+        description="Directory to save the prepared data (e.g., clipped layers).",
+    )
+
     # Ensure directories exist or create them if needed (especially output)
     def __init__(self, **data):
         super().__init__(**data)
-        # Ensure output directory exists after initialization
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        # Validate data_dir and gdb_path exist
+        # Ensure output directories exist after initialization
+        self.output_dir.mkdir(parents=True, exist_ok=True)  # Main DEM output
+        self.output_dir_prepared.mkdir(
+            parents=True, exist_ok=True
+        )  # Prepared data output
+
+        # Validate data_dir and main gdb_path exist
         if not self.data_dir.is_dir():
             raise NotADirectoryError(
                 f"Data directory not found or is not a directory: {self.data_dir}"
@@ -44,7 +60,12 @@ class PathsConfig(BaseModel):
         # A File Geodatabase (.gdb) is a directory, not a file
         if not self.gdb_path.is_dir():
             raise NotADirectoryError(
-                f"Geodatabase directory not found or is not a directory: {self.gdb_path}"
+                f"Main Geodatabase directory not found or is not a directory: {self.gdb_path}"
+            )
+        # Validate input_raw_gdb *if* it's set (it's Optional now)
+        if self.input_raw_gdb and not self.input_raw_gdb.is_dir():
+            raise NotADirectoryError(
+                f"Input Raw Geodatabase directory not found or is not a directory: {self.input_raw_gdb}"
             )
         # Removed validation for toporaster_all_input_tif to allow soft failure if missing
 
@@ -191,6 +212,16 @@ class ProcessingConfig(BaseModel):
     stream_burn_value: float = -10.0  # Value (in elevation units) to burn streams by
     stream_extract_threshold: int = 500  # Threshold for r.stream.extract (cells)
     # Transect is now generated dynamically based on data extent
+
+    # --- Raw Data Preparation Task Config ---
+    run_prepare_raw_data: bool = Field(
+        default=False,
+        description="Set to True to run the raw data prep task (prepare_raw_data.py)."
+        " REQUIRES MANUAL DATA CONVERSION FIRST.",
+    )
+    # Note: prepare_raw_data.py cannot read .gdb directly due to driver limitations.
+    # Input data must be manually converted to GPKG (or similar) and path set in PathsConfig.input_raw_gdb.
+    target_crs_epsg: int = 25832  # Default CRS for data processing (can be overridden)
 
 
 class AppConfig(BaseModel):
