@@ -1,0 +1,7 @@
+DEM_Type,RMSE,N_Points
+Natural Neighbor (Contour Points),17.45415653698415,1212
+TIN Gridding (Contour Points),17.465622984616125,1212
+Natural Neighbor (Elevation Points),2867.7097994172564,1212
+TIN Gridding (Elevation Points),2867.7112855837313,1212
+Stream Burn (Contour TIN based),17.478845283524066,1212
+ANUDEM (ArcGIS Pro),15.001615015426102,1212

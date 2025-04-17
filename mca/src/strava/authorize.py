@@ -33,7 +33,7 @@ def authorize():
     print("Starting flask server at mca/src/strava/flask_app.py from ", os.getcwd())
     # TODO make more robust path handling
     flask_process = subprocess.Popen(["python", "mca/src/strava/flask_app.py"])
-    time.sleep(1) # waits for server to be fully loaded
+    time.sleep(1)  # waits for server to be fully loaded
 
     auth_url = get_authorization_url()
     webbrowser.open(auth_url)
@@ -49,12 +49,12 @@ def authorize():
             break
         else:
             print("Waiting for user to authorize...")
-        
+
     flask_process.kill()
 
     token_data = exchange_code_for_token(auth_code)
 
-    with open(TOKEN_PATH, 'w') as f:
+    with open(TOKEN_PATH, "w") as f:
         json.dump(token_data, f, indent=4)
 
     print(f"Authorization successful! Find token at {os.getcwd()}/{TOKEN_PATH}")
@@ -64,16 +64,18 @@ def exchange_code_for_token(auth_code):
     """Exchange the authorization code for an access token."""
     token_url = "https://www.strava.com/oauth/token"
     payload = {
-        'client_id': CLIENT_ID,
-        'client_secret': CLIENT_SECRET,
-        'code': auth_code,
-        'grant_type': 'authorization_code'
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "code": auth_code,
+        "grant_type": "authorization_code",
     }
     response = requests.post(token_url, data=payload)
     if response.status_code == 200:
         return response.json()
     else:
-        raise Exception(f"Failed to exchange token: {response.status_code}, {response.text}")
+        raise Exception(
+            f"Failed to exchange token: {response.status_code}, {response.text}"
+        )
 
 
 def get_token():
@@ -82,9 +84,9 @@ def get_token():
 
     with open(TOKEN_PATH) as f:
         token_data = json.load(f)
-    
+
     if token_data.get("error", None):  # TODO do errors ever get stored?
-        print("Error in token data:", token_data)  
+        print("Error in token data:", token_data)
         return None
 
     if token_data.get("expires_at") < time.time():  # past expiration
@@ -92,7 +94,7 @@ def get_token():
         if not token_data:
             return None
 
-    return token_data['access_token']
+    return token_data["access_token"]
 
 
 def refresh_token(token_data):
@@ -100,10 +102,10 @@ def refresh_token(token_data):
 
     token_url = "https://www.strava.com/oauth/token"
     payload = {
-        'client_id': CLIENT_ID,
-        'client_secret': CLIENT_SECRET,
-        'grant_type': 'refresh_token',
-        'refresh_token': token_data['refresh_token']
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "grant_type": "refresh_token",
+        "refresh_token": token_data["refresh_token"],
     }
 
     response = requests.post(token_url, data=payload)
@@ -111,7 +113,7 @@ def refresh_token(token_data):
         token_data = response.json()
 
         # Save the new tokens to credentials or a secure location
-        with open('token.json', 'w') as f:
+        with open("token.json", "w") as f:
             json.dump(token_data, f, indent=4)
 
         print("Access token refreshed successfully.")

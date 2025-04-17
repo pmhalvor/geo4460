@@ -2,11 +2,14 @@
 .venv/
 .python-version
 uv.lock
-.DS_Store
+*.DS_Store
 
 # python
 __pycache__/
 *.pyc
+build/*
+*.egg-info
+.vscode/
 
 # project specific
 downloads/
@@ -15,6 +18,22 @@ downloads/
 # */data/
 .hide
 #*.pptx
+
+#extra outputs
+*output_py_*
+
+
+# datafiles
+*.cpg
+*.dbf
+*.prj
+*.shx
+*.shp
+*.tif
+*.tfw
+*.xml
+
+
 
 # mca
 ## strava 
