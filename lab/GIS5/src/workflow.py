@@ -9,29 +9,25 @@ try:
     from src.tasks.load_data import load_and_prepare_data
     from src.tasks.generate_dems import generate_dems
     from src.tasks.quality_assessment import assess_dem_quality
-    from src.tasks.derive_products import generate_derived_products
+    from lab.GIS5.src.tasks.further_analysis import generate_further_analysis
     from src.tasks.prepare_raw_data import prepare_raw_data
 except ImportError:
-    # Fallback for running the script directly from the src directory
     from config import settings
     from utils import setup_output_dir
 
-    # Add fallback import for the new task as well
     from tasks.load_data import load_and_prepare_data
     from tasks.generate_dems import generate_dems
     from tasks.quality_assessment import assess_dem_quality
-    from tasks.derive_products import generate_derived_products
+    from lab.GIS5.src.tasks.further_analysis import generate_further_analysis
     from tasks.prepare_raw_data import prepare_raw_data
 
 
 # --- Logging Setup ---
-# Configure logging to output to console with a specific format
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-# Get a logger for this module
 logger = logging.getLogger(__name__)
 
 
@@ -45,9 +41,6 @@ def main():
     try:
         wbt = WhiteboxTools()
         logger.info(f"  - WhiteboxTools version: {wbt.version()}")
-        # Optional: Set working directory if needed, though outputs are explicitly pathed
-        # wbt.work_dir = str(settings.paths.output_dir / "wbt_temp")
-        # logger.info(f"  - WhiteboxTools working directory set to: {wbt.work_dir}")
         wbt.set_verbose_mode(settings.processing.wbt_verbose)
     except Exception as e:
         logger.error(f"Error initializing WhiteboxTools: {e}")
@@ -57,21 +50,15 @@ def main():
         sys.exit(1)
 
     # --- Setup Output Directory ---
-    # Config handles creation, but setup_output_dir ensures it's clean
+    # Ensure the output directory exists (NOTE removes previous data!)
     logger.info(f"Setting up output directory: {settings.paths.output_dir}")
     setup_output_dir(settings.paths.output_dir)
 
     try:
         # --- Optional Task: Prepare Raw Data ---
-        # Check the generalized flag in settings
         if settings.processing.run_prepare_raw_data:
-            # Check if the required input GDB path is configured (or if using GPKG, check that path)
-            if (
-                settings.paths.input_raw_gdb
-            ):  # Or potentially a new config var like settings.paths.input_raw_gpkg
+            if settings.paths.input_raw_gdb:
                 logger.info("--- Starting Optional Task: Prepare Raw Data ---")
-                # Call the renamed function with the main settings object
-                # Ensure the input path used by prepare_raw_data matches the configured input (GDB or GPKG)
                 prepare_raw_data(settings)
                 logger.info("--- Finished Optional Task: Prepare Raw Data ---")
             else:
@@ -88,11 +75,8 @@ def main():
         logger.info(
             "--- Starting Task 1: Load and Prepare Data (Main DEM Workflow) ---"
         )
-        # This task likely uses different input data specified in the main config sections
         loaded_gdfs, common_extent, common_crs, contour_elev_field, point_elev_field = (
-            load_and_prepare_data(
-                settings
-            )  # This uses settings like settings.paths.input_gdb etc.
+            load_and_prepare_data(settings)
         )
         logger.info(
             "--- Finished Task 1: Load and Prepare Data (Main DEM Workflow) ---"
@@ -103,20 +87,17 @@ def main():
         output_files = settings.output_files
         contour_shp_path = output_files.get_full_path("contour_shp", output_dir)
         points_shp_path = output_files.get_full_path("points_shp", output_dir)
-        # Get the path to the river shapefile saved by load_data
         river_shp_path = output_files.get_full_path("river_shp", output_dir)
 
         # --- Task 2: Generate DEMs ---
         logger.info("--- Starting Task 2: Generate DEMs ---")
-        # Pass the river shapefile path for potential stream burning
-        # Pass the elevation points shapefile path instead of contours
         # Pass both contour and elevation points paths and contour field
         generate_dems(
             settings=settings,
             wbt=wbt,
-            contour_shp_path=contour_shp_path,  # Pass contour path
-            contour_elev_field=contour_elev_field,  # Pass contour field
-            elevation_points_shp_path=points_shp_path,  # Pass points path
+            contour_shp_path=contour_shp_path,
+            contour_elev_field=contour_elev_field,
+            elevation_points_shp_path=points_shp_path,
             river_shp_path=river_shp_path,
             stream_extract_threshold=(
                 settings.processing.stream_extract_threshold
@@ -126,7 +107,6 @@ def main():
         )
         logger.info("--- Finished Task 2: Generate DEMs ---")
 
-        # Get DEM paths for next tasks using updated filenames from config
         dem_interp_contour_path = output_files.get_full_path(
             "dem_interpolated_contour_tif", output_dir
         )
@@ -149,7 +129,6 @@ def main():
 
         # --- Task 3: Quality Assessment ---
         logger.info("--- Starting Task 3: Quality Assessment ---")
-        # Pass all DEM paths to the updated function
         assess_dem_quality(
             settings=settings,
             wbt=wbt,
@@ -166,12 +145,9 @@ def main():
 
         # --- Task 4: Generate Derived Products ---
         logger.info("--- Starting Task 4: Generate Derived Products ---")
-        # Call generate_derived_products, passing all relevant DEM paths
-        # Transect creation and profile analysis are now handled within this function
-        generate_derived_products(
+        generate_further_analysis(
             settings=settings,
             wbt=wbt,
-            # Pass the new DEM paths - requires update in derive_products.py
             dem_interp_contour_path=dem_interp_contour_path,
             dem_topo_contour_path=dem_topo_contour_path,
             dem_interp_points_path=dem_interp_points_path,

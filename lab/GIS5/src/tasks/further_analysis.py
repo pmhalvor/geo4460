@@ -23,7 +23,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class DerivedProductGenerator:
+class FurtherAnalysisGenerator:
     """
     Generates derived raster and vector products from DEMs using WhiteboxTools.
 
@@ -43,7 +43,7 @@ class DerivedProductGenerator:
         common_extent: Optional[tuple[float, float, float, float]] = None,
     ):
         """
-        Initializes the DerivedProductGenerator.
+        Initializes the FurtherAnalysisGenerator.
 
         Args:
             settings: The application configuration object.
@@ -56,11 +56,9 @@ class DerivedProductGenerator:
         self.common_crs = common_crs  # Store the common CRS
         self.common_extent = common_extent  # Store the common extent
         self.processed_dems: Dict[str, Path] = {}
-        self.profile_data: Dict[str, Dict[str, np.ndarray]] = (
-            {}
-        )  # To store extracted profile data
+        self.profile_data: Dict[str, Dict[str, np.ndarray]] = {}
         self.wbt.set_verbose_mode(self.settings.processing.wbt_verbose)
-        logger.info("DerivedProductGenerator initialized.")
+        logger.info("FurtherAnalysisGenerator initialized.")
         if not common_crs:
             logger.warning("Common CRS not provided. Transect creation might fail.")
         if not common_extent:
@@ -520,7 +518,7 @@ class DerivedProductGenerator:
 # --- Wrapper Function (for compatibility with workflow.py) ---
 
 
-def generate_derived_products(
+def generate_further_analysis(
     settings: BaseModel,
     wbt: WhiteboxTools,
     # Updated DEM paths
@@ -535,7 +533,7 @@ def generate_derived_products(
 ):
     """
     Wrapper function to generate derived raster and vector products using the
-    DerivedProductGenerator class. Processes all available input DEMs.
+    FurtherAnalysisGenerator class. Processes all available input DEMs.
 
     Args:
         settings: The application configuration object.
@@ -558,7 +556,7 @@ def generate_derived_products(
     )
 
     # Pass common_crs and common_extent to the generator
-    generator = DerivedProductGenerator(
+    generator = FurtherAnalysisGenerator(
         settings, wbt, common_crs=common_crs, common_extent=common_extent
     )
 
