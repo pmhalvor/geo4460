@@ -185,10 +185,10 @@ class OutputFilesConfig(BaseModel):
     # Map internal DEM keys to user-friendly names for reports and plots
     dem_type_map: dict[str, str] = Field(
         default={
-            "interp_contour": "Natural Neighbor (Contour)",
-            "topo_contour": "TIN Gridding (Contour)",
-            "interp_points": "Natural Neighbor (Points)",
-            "topo_points": "TIN Gridding (Points)",
+            "interp_contour": "Natural Neighbor (Contour Points)",
+            "topo_contour": "TIN Gridding (Contour Points)",
+            "interp_points": "Natural Neighbor (Elevation Points)",
+            "topo_points": "TIN Gridding (Elevation Points)",
             "stream_burn": "Stream Burn (Contour TIN based)",
             "toporaster_all": "ANUDEM (ArcGIS Pro)",
         }
