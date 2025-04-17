@@ -22,15 +22,17 @@ dependencies = [
     "shapely>=2.0.7",
     "tabulate>=0.9.0",
     "whitebox>=2.3.6",
-    "pydantic>=2.7.1", # Added for configuration management
+    "pydantic>=2.7.1",
     "black>=25.1.0",
     "pre-commit>=4.2.0",
     "flake8>=7.2.0",
+    "grass-session>=0.5",
+    "grass>=0.1.2",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0", # Added for testing
+    "pytest>=8.0",
 ]
 
 [tool.setuptools]

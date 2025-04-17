@@ -1,27 +1,18 @@
-# Makefile for GIS5 DEM Analysis Workflow
-
-# Use python from the current environment
-# Assumes dependencies are installed (e.g., via pip install -e .[dev] from project root)
 PYTHON = python
 
-# Define the source directory relative to this Makefile
 SRC_DIR = src/
 TEST_DIR = tests/
 OUTPUT_DIR = output_py_$(shell date +%Y%m%d_%H%M%S)
 
-# Phony targets don't represent files
 .PHONY: all run clean test install list_output help
 
-# Default target
 all: help
 
-# Run the main analysis workflow
 run:
 	@echo "--- Running DEM Analysis Workflow ---"
 	$(PYTHON) -m src.workflow
 	@echo "--- Workflow Finished ---"
 
-# Clean the output directory
 clean:
 	@echo "--- Available Output Directories ---"
 	@ls -d output_py_* 2>/dev/null || echo "No output directories found."
@@ -39,9 +30,6 @@ clean:
 		echo "Invalid directory: $$dir"; \
 	fi
 
-# Run tests using pytest
-# Assumes pytest is run from the project root directory (containing pyproject.toml)
-# Adjust if running from lab/GIS5 directory
 test:
 	@echo "--- Running Tests ---"
 	pytest $(TEST_DIR)
@@ -49,14 +37,11 @@ test:
 	# pytest $(TEST_DIR)
 	@echo "--- Testing Complete ---"
 
-# Install dependencies (useful for setup)
-# Assumes running from the project root directory
 install:
 	@echo "--- Installing Dependencies (run from project root) ---"
 	pip install -e .[dev]
 	@echo "--- Installation Command Shown (run manually from project root if needed) ---"
 
-# List the contents of the output directory
 list_output:
 	@echo "--- Listing Output Directory Contents (${OUTPUT_DIR}) ---"
 	@if [ -d "$(OUTPUT_DIR)" ]; then \
@@ -67,7 +52,6 @@ list_output:
 	@echo "--- Listing Complete ---"
 
 
-# Help target to display available commands
 help:
 	@echo "Available commands:"
 	@echo "  make run          - Run the main DEM analysis workflow"
