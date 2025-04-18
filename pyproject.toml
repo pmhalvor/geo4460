@@ -28,6 +28,8 @@ dependencies = [
     "flake8>=7.2.0",
     "grass-session>=0.5",
     "grass>=0.1.2",
+    "dask>=2025.3.0",
+    "distributed>=2025.3.0",
 ]
 
 [project.optional-dependencies]
