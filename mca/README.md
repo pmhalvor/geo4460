@@ -111,3 +111,25 @@ uv run python -m src.workflow
     2. Plot statistics comparing lane types for all metrics 
     3. Show best scoring bike-less segments/routes/roads
     4. Show best scoring bike-paths
+
+
+## Data
+
+- [x] Strava segments (geojson)
+    - id, polyline 
+    - `mca/data/segments/segments_oslo.geojson`
+- [ ]  Strava activities (geojson)
+    - polyline, speed line, activity id
+- [ ]  N50 (fgdb, +++)
+    - [ ]  Roads
+        - [ ]  roads
+        - [ ]  bike lanes
+    - [ ]  Elevation
+- [ ]  Traffic (json)
+    - [ ]  Cars
+    - [x]  Bikes 
+        - `data/traffic/all-oslo-bikes-day_20240101T0000_20250101T0000.csv`
+- [ ]  Bike lane classifications (maybe)
+
+<!-- TODO: update w/ source references -->
+<!-- TODO update with correct dataset names -->
