@@ -333,4 +333,11 @@ def build_features_task(data_path: Path):
         print(result)
 
     print("--- Feature Building Task Completed ---")
-    return "Feature building task completed."
+    return (
+        segments,
+        heatmap,
+        traffic,
+        roads,
+        elevation,
+        results,
+    )
