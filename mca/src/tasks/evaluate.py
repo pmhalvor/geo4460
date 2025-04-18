@@ -7,7 +7,7 @@
         1. Compare distances
         2. Compare average popularities 
         3. Compare PASR (giving estimate for time)
-    3. Find segments to reccommend from final map
+    3. Find segments to recommend from final map
 2. Present results
     1. Display overlays: segments, lanes, roads, roads w/o lanes, most important CDW routes 
     2. Plot statistics comparing lane types for all metrics 

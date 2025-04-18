@@ -1,5 +1,5 @@
 """
-1. Load data: poly lines and points 
+1. Load data: convert data from `data/` to gdf w/ polylines or points
     1. Segments: gdf, get_metric(metric, id=“all”), get(id), len, …
     2. Heatmap: gdf, get_activity(id), len, …
     3. Traffic: gdf, get_metric(metric, id="all”, vehicle=["all”, “bike”, “car”]), get(id), len, … 
@@ -7,23 +7,46 @@
     5. Elevation: contour lines, get_metric(metric, id="all”), get(id), len, …
     6. Roads: gdf, get_classification()
 
-2. Generate rasters:
-    1. Traffic buffers (for better segment intersection)
-        1. Bike
-        2. Car
-    2. Lanes raster/lines
-    3. Average speed raster/lines (from personal heat map)
-    4. Segment popularity rasters/lines
-        1. Athletes/age
-        2. Stars/age
-        3. Stars/athletes
-        4. …
-    5. Generate roads polygon (cost distance)
-    6. Create Oslo mask (from random CDW)
-    7. Elevation DEM
-    8. Slope Raster 
-    9. PASR: Predicted average speed raster (Co-Kriging or similar using slope as external variable)
-
+2. Generate feature layers:
+    1. Roads:
+        1. Roads polylines (needed for CDW analysis)
+        2. Bike lane polylines (w/ lane classification if possible)
+        3. Roads w/o bike lanes (final layer to be used downtream)
+    2. Segment popularity rasters/lines
+        1. Aggregate column data into relevant metrics:
+            1. Athletes/age
+            2. Stars/age
+            3. Stars/athletes
+        2. Aggregate metrics over all polylines (average)
+        3. Create raster from aggregated metric polylines 
+    3. Average speed raster (from personal heat map)
+        1. Start w/ activities df including polylines w/ speed points
+        2. Build speed points layer
+        3. Create raster from speed points (doppler shift expected on two way roads up hill)
+    4. Traffic buffers (for better segment intersection)
+        1. Traffic stations as points w/ flux metrics
+        2. Create buffers around traffic stations
+        3. Create raster from traffic buffers
+    5. Elevation & slope rasters:
+        1. Contour lines as points
+        3. Create elevation raster from contour points 
+        4. Create slope raster from elevation raster (use in cost function analysis)
+    6. Cost function raster
+        1. Elevation for slope raster
+        2. Roads for road polylines 
+        3. (Questionable due to double representation) Heatmap for average speed raster (higher speed = more reward)
+        Alternatives: (choose based on implementation)
+            1. Randomized CDW 
+                1. Select two random points in Oslo
+                2. Find least cost routes
+                    1. Transverse between points, traveling over all roads
+                    2. Transverse between points, biased towards traveling over bike routes
+                    3. Transverse between points, biased towards traveling over non-bike routes
+            2. Simple cost funciton raster
+                1. Build cost layer raster with 
+                    1. slope as cost function
+                    2. high speed as rewards
+                    3. roads as restrictions
 """
 
 import dask
@@ -40,6 +63,7 @@ class FeatureBase(ABC):
     def __init__(self, data_path):
         self.data_path = data_path
         self.gdf = None
+        self.base_layer = None
 
     @abstractmethod
     def interpolate(self, points):
@@ -61,7 +85,7 @@ class FeatureBase(ABC):
         return f"Buffered {layer}"
 
     def load_data(self):
-        # Simulate loading data wbt
+        # Maybe load data is what needds to be abstract and overriden for each child?
         time.sleep(1)
         print(f"Loading data from {self.data_path}")
         self.gdf = f"Loaded dataframe from {self.data_path}"
@@ -247,6 +271,25 @@ class Elevation(FeatureBase):
         self.slope = "Slope raster"
         print(f"Built DEM and slope raster from {self.data_path}")
         return "Completed DEM and slope raster"
+
+
+class CostDistance(FeatureBase):
+    def __init__(self, Roads, Elevation):
+        super().__init__(None)
+        self.cost_distance_task = self.build_cost_distance()
+
+    def interpolate(self, points):
+        print(f"Interpolating cost distance data {points}")
+        time.sleep(5)
+        return f"Interpolated cost distance data {points}"
+
+    @dask.delayed
+    def build_cost_distance(self):
+        """
+        Slightly different since this will require data from
+        both Roads and Elevation
+
+        """
 
 
 def build_features_task(data_path: Path):
