@@ -7,8 +7,8 @@ The analysis looks for popular routes that are currently not well connected to t
 The research questions we'll aim to solve area:
 - (General) Can we find ways to improve cycling infrastructure around Oslo using traffic & Strava data?
 - (Specific) What are some examples of popular Strava segments that do not have bike lanes?
-- (Specific) How does relative traffic vary between segments over bike lanes versus those not on bike lanes?
-- (Specific) For N sets of 2 random point in Oslo, run 3 cost-distance weight analyses between them: one biased toward traveling over bike lanes as much as possible, another biased toward traveling over anyway a segment exists, the final over any road. Compare averages over these routes (distance, average speed, cost, segment popularity, etc).
+- (Specific) How does segment popularity vary between segments over bike lanes versus those not on bike lanes?
+- (Specific) Is there a correlation between Strava segment popularity and cost? Traffic? Speed?
 
 
 ## Contents
