@@ -7,6 +7,7 @@ import geopandas as gpd
 import numpy as np
 import rasterio
 from pyproj import CRS
+from shapely.geometry import Point
 
 
 logger = logging.getLogger(__name__)
@@ -215,3 +216,62 @@ def reproject_gdf(
     except Exception as e:
         logger.error(f"Error during reprojection to {target_crs}: {e}")
         raise
+
+
+def polyline_to_points(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """
+    Converts Polyline/LineString geometries in a GeoDataFrame to Point geometries
+    representing the vertices.
+
+    Args:
+        gdf (gpd.GeoDataFrame): Input GeoDataFrame with LineString or MultiLineString geometries.
+
+    Returns:
+        gpd.GeoDataFrame: Output GeoDataFrame with Point geometries. Attributes are
+                          duplicated for each vertex from the original line.
+    """
+    points_list = []
+    original_columns = gdf.columns.tolist()  # Keep track of original columns
+
+    for index, row in gdf.iterrows():
+        geom = row.geometry
+        if geom is None:
+            continue
+
+        attributes = row.drop("geometry").to_dict()
+
+        if geom.geom_type == "LineString":
+            for point_coords in geom.coords:
+                point_geom = Point(point_coords)
+                points_list.append({**attributes, "geometry": point_geom})
+        elif geom.geom_type == "MultiLineString":
+            for line in geom.geoms:
+                for point_coords in line.coords:
+                    point_geom = Point(point_coords)
+                    points_list.append({**attributes, "geometry": point_geom})
+        # Add handling for other geometry types if necessary, e.g., Points
+        elif geom.geom_type == "Point":
+            points_list.append({**attributes, "geometry": geom})  # Keep existing points
+        else:
+            logger.warning(
+                f"Skipping unsupported geometry type at index {index}: {geom.geom_type}"
+            )
+
+    if not points_list:
+        logger.warning("No points generated from polylines.")
+        # Return an empty GeoDataFrame with the original schema and CRS
+        return gpd.GeoDataFrame([], columns=original_columns, crs=gdf.crs)
+
+    # Ensure the columns match the original, adding geometry if it wasn't there
+    # (though it should be for a GeoDataFrame)
+    final_columns = (
+        original_columns
+        if "geometry" in original_columns
+        else original_columns + ["geometry"]
+    )
+
+    points_gdf = gpd.GeoDataFrame(points_list, columns=final_columns, crs=gdf.crs)
+    logger.info(
+        f"Converted/processed {len(gdf)} input features to {len(points_gdf)} points."
+    )
+    return points_gdf
