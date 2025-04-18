@@ -46,24 +46,22 @@ uv run python -m src.workflow
     2. Heatmap: gdf, get_activity(id), len, …
     3. Traffic: gdf, get_metric(metric, id="all”, vehicle=["all”, “bike”, “car”]), get(id), len, … 
     4. Lanes: gdf, get_classification(id), get(id), len, …
-    5. AQI: gdf, get_metric(metric, id="all”), get(id), len, …
-    6. Elevation: contour lines
-    7. Roads: gdf, get_classification()
+    5. Elevation: contour lines
+    6. Roads: gdf, get_classification()
 2. Generate feature layers:
     1. Traffic buffers (for better segment intersection)
         1. Bike
         2. Car
     2. Lanes raster/lines
-    3. AQI Influence (IDW)
-    4. Average speed raster/lines (from personal heat map)
-    5. Segment popularity rasters/lines
+    3. Average speed raster (from personal heat map)
+    4. Segment popularity rasters/lines
         1. Athletes/age
         2. Stars/age
         3. Stars/athletes
         4. …
-    6. Generate roads polygon (cost distance)
-    7. Elevation raster from contour points
-3. Geoprocess
+    5. Generate roads polygon (cost distance)
+    6. Elevation raster from contour points
+3. Combine features:
     1. Get popular segments w/o biking lanes
         1. (Iterative preprocessing step) Roads - lanes_classification_filtered -› find segments around these spots
         2. Full segment raster - lanes_classification_filtered (keep segments even if half has bike lane)
@@ -73,7 +71,12 @@ uv run python -m src.workflow
             1. Transverse between points, traveling over all roads
             2. Transverse between points, biased towards traveling over bike routes
             3. Transverse between points, biased towards traveling over non-bike routes
-4. Assessment 
+    3. (Alternative to 2.) Cost funciton raster
+        1. Build cost layer raster with 
+            1. slope as cost function
+            2. high speed as rewards
+            3. roads as restrictions
+4. Evaluate findings
     1. Compare segments w/ and w/o bike lanes
         1. Against: popularity metrics, average speed, average elevation difference
         2. Find top ranking remaining segments w/ different metrics
