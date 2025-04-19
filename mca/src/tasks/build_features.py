@@ -1,1111 +1,33 @@
 import logging
-import sys  # Added for main block
-import dask
-import time
-import numpy as np  # Added numpy import
-import pandas as pd
-import geopandas as gpd
-from abc import ABC, abstractmethod
+import sys
 from pathlib import Path
-from tqdm import tqdm  # Added for progress bar
-
-from dask.distributed import Client, LocalCluster  # Added LocalCluster for main block
+from dask.distributed import Client, LocalCluster
 from whitebox import WhiteboxTools
-import polyline  # Added for decoding Strava polylines
-from shapely.geometry import LineString  # Added for creating geometry
-from geokrige.methods import OrdinaryKriging  # Import geokrige
-from rasterio.transform import from_origin  # Needed for profile creation
-
 
 # Local imports
-from src.config import (
-    AppConfig,
-    settings as app_settings,
-)  # Import settings for main block
-
-# Import the function to get segment details
-from src.strava.explore import get_segment_details
-from src.utils import (
-    load_vector_data,
-    save_vector_data,
-    reproject_gdf,
-    polyline_to_points,
-    save_raster_data,  # Assuming we might save intermediate rasters
-    load_raster_data,  # Added import for CostDistance class
-)
-
-logger = logging.getLogger(__name__)
-
-# --- Docstring from original file (for reference) ---
-"""
-Workflow Steps relevant to this module:
-
-1. Load data: convert data from `data/` to gdf w/ polylines or points
-    1. Segments: gdf, get_metric(metric, id="all"), get(id), len, …
-    2. Heatmap: gdf, get_activity(id), len, …
-    3. Traffic: gdf, get_metric(metric, id="all", vehicle=["all", "bike", "car"]), get(id), len, …
-    4. Lanes: gdf, get_classification(id), get(id), len, … # Part of Roads
-    5. Elevation: contour lines, get_metric(metric, id="all"), get(id), len, …
-    6. Roads: gdf, get_classification()
-
-2. Generate feature layers:
-    1. Roads:
-        1. Roads polylines (needed for CDW analysis)
-        2. Bike lane polylines (w/ lane classification if possible)
-        3. Roads w/o bike lanes (final layer to be used downtream)
-    2. Segment popularity rasters/lines
-        1. Aggregate column data into relevant metrics:
-            1. Athletes/age
-            2. Stars/age
-            3. Stars/athletes
-        2. Aggregate metrics over all polylines (average)
-        3. Create raster from aggregated metric polylines
-    3. Average speed raster (from personal heat map - Strava Activities)
-        1. Start w/ activities gdf including polylines w/ speed points
-        2. Build speed points layer
-        3. Create raster from speed points (doppler shift expected on two way roads up hill)
-    4. Traffic buffers (for better segment intersection)
-        1. Traffic stations as points w/ flux metrics
-        2. Create buffers around traffic stations
-        3. Create raster from traffic buffers (Interpolation)
-    5. Elevation & slope rasters:
-        1. Contour lines as points (from N50)
-        3. Create elevation raster (DEM) from contour points
-        4. Create slope raster from elevation raster
-    6. Cost function raster
-        1. Combine slope, speed (optional), road restrictions
-"""
-
-
-# --- Base Class ---
-class FeatureBase(ABC):
-    """Abstract base class for feature generation."""
-
-    def __init__(self, settings: AppConfig, wbt: WhiteboxTools):
-        self.settings = settings
-        self.wbt = wbt
-        self.gdf: gpd.GeoDataFrame | None = None  # Loaded and preprocessed data
-        self.output_paths: dict = {}  # To store paths of generated outputs
-
-    @abstractmethod
-    def load_data(self):
-        """Load and preprocess data specific to the feature."""
-        pass
-
-    @abstractmethod
-    def build(self):
-        """Build the feature layer(s) (potentially using Dask)."""
-        pass
-
-    def _get_output_path(self, key: str) -> Path:
-        """Helper to get a full output path from settings."""
-        filename = getattr(self.settings.output_files, key)
-        return self.settings.paths.output_dir / filename
-
-    def _save_intermediate_gdf(self, gdf: gpd.GeoDataFrame, output_key: str):
-        """Saves an intermediate GeoDataFrame."""
-        path = self._get_output_path(output_key)
-        save_vector_data(gdf, path, driver="GPKG")  # Use GeoPackage for intermediates
-        self.output_paths[output_key] = path
-        logger.info(f"Saved intermediate vector data: {path}")
-
-    def _save_raster(self, array, profile, output_key: str, metric_name: str = None):
-        """Saves a raster file, optionally appending a metric name."""
-        path = self._get_output_path(output_key)
-        if metric_name:
-            # Append metric name before the suffix
-            path = path.parent / f"{path.stem}_{metric_name}{path.suffix}"
-        save_raster_data(array, profile, path)
-        # Store the actual path used, including the metric name
-        output_key_metric = f"{output_key}_{metric_name}" if metric_name else output_key
-        self.output_paths[output_key_metric] = path
-        logger.info(f"Saved raster data: {path}")
-
-    def _reproject_if_needed(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-        """Reprojects GeoDataFrame to target CRS if not already matching."""
-        target_crs = f"EPSG:{self.settings.processing.output_crs_epsg}"
-        if gdf.crs is None:
-            logger.warning("Input GDF has no CRS, assuming EPSG:4326 for reprojection.")
-            gdf.crs = "EPSG:4326"  # Common default, adjust if needed
-        if gdf.crs != target_crs:
-            return reproject_gdf(gdf, target_crs)
-        return gdf
-
-
-# --- Feature Subclasses ---
-
-
-class Segments(FeatureBase):
-    """Handles Strava segment data processing."""
-
-    def load_data(self):
-        logger.info("Loading and preprocessing Strava segments...")
-        initial_gdf = load_vector_data(self.settings.paths.strava_segments_geojson)
-        segment_id_field = self.settings.input_data.segment_id_field
-
-        if segment_id_field not in initial_gdf.columns:
-            raise ValueError(
-                f"Segment ID field '{segment_id_field}' not found in {self.settings.paths.strava_segments_geojson}"
-            )
-
-        # --- API Fetching and Caching (CSV) ---
-        cache_path = self.settings.paths.segment_details_cache_csv
-        # Define columns for cache (essential details needed for preprocessing)
-        athlete_count_field = self.settings.input_data.segment_athlete_count_field
-        star_count_field = self.settings.input_data.segment_star_count_field
-        created_at_field = self.settings.input_data.segment_created_at_field
-        # Add other fields potentially useful from API details
-        effort_count_field = self.settings.input_data.segment_effort_count_field
-        distance_field = self.settings.input_data.segment_distance_field
-        elevation_diff_field = self.settings.input_data.segment_elevation_diff_field
-
-        cache_cols = [
-            segment_id_field,
-            athlete_count_field,
-            star_count_field,
-            created_at_field,
-            effort_count_field,
-            distance_field,
-            elevation_diff_field,
-        ]
-        segment_details_cache_df = pd.DataFrame(columns=cache_cols)  # Initialize empty
-
-        if cache_path.exists():
-            try:
-                segment_details_cache_df = pd.read_csv(cache_path)
-                # Ensure ID column is the correct type for merging
-                if not segment_details_cache_df.empty:
-                    segment_details_cache_df[segment_id_field] = (
-                        segment_details_cache_df[segment_id_field].astype(
-                            initial_gdf[segment_id_field].dtype
-                        )
-                    )
-                logger.info(
-                    f"Loaded {len(segment_details_cache_df)} segment details from CSV cache: {cache_path}"
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Could not load or parse CSV cache file {cache_path}: {e}. Starting with empty cache."
-                )
-                segment_details_cache_df = pd.DataFrame(
-                    columns=cache_cols
-                )  # Ensure empty df has columns
-
-        # Identify segments needing details fetched
-        cached_ids = set()
-        if not segment_details_cache_df.empty:
-            # Also check for entries where fetching might have failed previously (e.g., created_at is NaN)
-            valid_cache_df = segment_details_cache_df.dropna(subset=[created_at_field])
-            cached_ids = set(valid_cache_df[segment_id_field].unique())
-
-        ids_to_fetch = (
-            initial_gdf[~initial_gdf[segment_id_field].isin(cached_ids)][
-                segment_id_field
-            ]
-            .unique()
-            .tolist()
-        )
-
-        newly_fetched_details = []
-        if ids_to_fetch:
-            logger.info(
-                f"Fetching details for {len(ids_to_fetch)} segments not found or incomplete in cache..."
-            )
-            for segment_id in tqdm(ids_to_fetch, desc="Fetching Segment Details"):
-                segment_input = {"id": segment_id}  # Input for get_segment_details
-                details = get_segment_details(segment_input)
-                if details:
-                    # Extract only the needed columns for the cache
-                    detail_subset = {
-                        col: details.get(col) for col in cache_cols if col in details
-                    }
-                    detail_subset[segment_id_field] = segment_id  # Ensure ID is present
-                    newly_fetched_details.append(detail_subset)
-                    logger.debug(
-                        f"Successfully fetched details for segment ID: {segment_id}"
-                    )
-                else:
-                    logger.warning(
-                        f"Failed to fetch details for segment ID: {segment_id}"
-                    )
-                    # Add a placeholder with the ID and Nones/NaNs for other cache cols
-                    placeholder = {col: np.nan for col in cache_cols}
-                    placeholder[segment_id_field] = segment_id
-                    newly_fetched_details.append(placeholder)
-
-                # Respect API rate limits
-                time.sleep(self.settings.processing.strava_api_request_delay)
-
-            # Update cache if new details were fetched
-            if newly_fetched_details:
-                new_details_df = pd.DataFrame(newly_fetched_details)
-                # Combine old cache with new details
-                # Ensure consistent dtypes before concat if possible, especially for ID
-                if not segment_details_cache_df.empty:
-                    new_details_df[segment_id_field] = new_details_df[
-                        segment_id_field
-                    ].astype(segment_details_cache_df[segment_id_field].dtype)
-                segment_details_cache_df = pd.concat(
-                    [segment_details_cache_df, new_details_df], ignore_index=True
-                )
-                # Drop duplicates based on ID, keeping the latest fetch (last entry)
-                segment_details_cache_df = segment_details_cache_df.drop_duplicates(
-                    subset=[segment_id_field], keep="last"
-                )
-                try:
-                    # Ensure parent directory exists before saving
-                    cache_path.parent.mkdir(parents=True, exist_ok=True)
-                    segment_details_cache_df.to_csv(cache_path, index=False)
-                    logger.info(f"Updated segment details cache CSV: {cache_path}")
-                except Exception as e:
-                    logger.error(f"Failed to save updated cache CSV: {e}")
-        else:
-            logger.info("All segment details found in cache.")
-
-        # --- Merge fetched/cached details with initial GeoDataFrame ---
-        # Drop existing detail columns from initial_gdf if they exist, to avoid conflicts
-        # Keep geometry from initial GDF
-        cols_to_drop_from_initial = [
-            col
-            for col in cache_cols
-            if col != segment_id_field and col in initial_gdf.columns
-        ]
-        initial_gdf_clean = initial_gdf.drop(
-            columns=cols_to_drop_from_initial, errors="ignore"
-        )
-
-        # Perform the merge
-        if not segment_details_cache_df.empty:
-            # Ensure ID types match before merge
-            initial_gdf_clean[segment_id_field] = initial_gdf_clean[
-                segment_id_field
-            ].astype(segment_details_cache_df[segment_id_field].dtype)
-
-            # Select only cache columns for merging to avoid duplicating others
-            details_to_merge = segment_details_cache_df[cache_cols]
-
-            merged_gdf = pd.merge(
-                initial_gdf_clean,
-                details_to_merge,
-                on=segment_id_field,
-                how="left",  # Keep all segments from initial file, add details where available
-            )
-        else:
-            logger.warning(
-                "Segment details cache is empty. Proceeding without detailed attributes."
-            )
-            merged_gdf = initial_gdf_clean  # Use initial data if cache is empty
-            # Add empty columns for required fields if they don't exist
-            for col in [athlete_count_field, star_count_field, created_at_field]:
-                if col not in merged_gdf.columns:
-                    merged_gdf[col] = np.nan
-
-        # Check for segments that didn't get details (check for NaN in a required field like created_at)
-        missing_details_count = merged_gdf[created_at_field].isna().sum()
-        if missing_details_count > 0:
-            logger.warning(
-                f"{missing_details_count} segments are missing details (created_at is null) after cache/API fetch."
-            )
-
-        # --- Decode Polylines and Create Geometry ---
-        # This step is now less critical if initial_gdf already has geometry,
-        # but we keep it as a fallback or if the 'map.polyline' is preferred.
-        logger.info("Decoding polylines (if necessary)...")
-        geometries = []
-        polyline_field = (
-            self.settings.input_data.segment_polyline_field
-        )  # Field containing encoded polyline
-
-        has_geometry_col = "geometry" in merged_gdf.columns
-
-        for index, row in merged_gdf.iterrows():
-            encoded_polyline = None
-            # Check if geometry already exists and is valid
-            if has_geometry_col and hasattr(row["geometry"], "geom_type"):
-                geometries.append(row["geometry"])
-                continue  # Skip decoding if valid geometry exists
-
-            # If no valid geometry, try decoding from 'map' or top-level field
-            if (
-                "map" in row
-                and isinstance(row["map"], dict)
-                and polyline_field in row["map"]
-            ):
-                encoded_polyline = row["map"][polyline_field]
-            elif polyline_field in row and pd.notna(row[polyline_field]):
-                encoded_polyline = row[polyline_field]
-
-            if encoded_polyline:
-                try:
-                    decoded_coords = polyline.decode(encoded_polyline)
-                    lon_lat_coords = [(lon, lat) for lat, lon in decoded_coords]
-                    if len(lon_lat_coords) >= 2:
-                        geometries.append(LineString(lon_lat_coords))
-                    else:
-                        geometries.append(None)
-                        logger.warning(
-                            f"Segment {row.get(segment_id_field, index)}: Decoded polyline has < 2 points."
-                        )
-                except Exception as e:
-                    logger.warning(
-                        f"Segment {row.get(segment_id_field, index)}: Failed to decode polyline '{encoded_polyline}': {e}"
-                    )
-                    geometries.append(None)
-            else:
-                logger.warning(
-                    f"Segment {row.get(segment_id_field, index)}: Missing polyline data and no existing geometry."
-                )
-                geometries.append(None)
-
-        # Create the final GeoDataFrame
-        # Drop original geometry column before assigning new one if it existed
-        cols_to_drop_final = ["map", polyline_field]
-        if has_geometry_col:
-            cols_to_drop_final.append("geometry")
-
-        self.gdf = gpd.GeoDataFrame(
-            merged_gdf.drop(columns=cols_to_drop_final, errors="ignore"),
-            geometry=geometries,
-        )
-        # Set CRS - Assume WGS84 if geometry was decoded, otherwise inherit from initial_gdf if possible
-        if not has_geometry_col or not initial_gdf.crs:
-            self.gdf.crs = "EPSG:4326"
-        else:
-            self.gdf.crs = (
-                initial_gdf.crs
-            )  # Keep original CRS if geometry wasn't decoded
-
-        # Drop rows with invalid/missing geometries or missing crucial details (like created_at)
-        original_len = len(self.gdf)
-        # Ensure created_at_field exists before dropping NA based on it
-        if created_at_field in self.gdf.columns:
-            self.gdf = self.gdf.dropna(subset=["geometry", created_at_field])
-        else:
-            logger.warning(
-                f"Column '{created_at_field}' not found, cannot drop NA based on it."
-            )
-            self.gdf = self.gdf.dropna(
-                subset=["geometry"]
-            )  # Drop only based on geometry
-
-        self.gdf = self.gdf[self.gdf.geometry.is_valid & ~self.gdf.geometry.is_empty]
-        if len(self.gdf) < original_len:
-            logger.warning(
-                f"Dropped {original_len - len(self.gdf)} segments due to invalid geometry or missing essential details."
-            )
-
-        if self.gdf.empty:
-            logger.error(
-                "No valid segments remaining after loading and detail fetching."
-            )
-            self.gdf = None  # Ensure gdf is None if empty
-            return  # Stop processing if no valid segments
-
-        self.gdf = self._reproject_if_needed(self.gdf)  # Reproject to target CRS
-
-        # --- Preprocessing Steps (Age and Metrics) ---
-        logger.info("Calculating segment age and popularity metrics...")
-
-        # Ensure necessary columns exist after merge/cleanup
-        required_cols_final = [created_at_field, athlete_count_field, star_count_field]
-        missing_cols_final = [
-            col for col in required_cols_final if col not in self.gdf.columns
-        ]
-        if missing_cols_final:
-            raise ValueError(
-                f"Missing required columns for metric calculation: {missing_cols_final}"
-            )
-
-        # Calculate Age
-        try:
-            # Convert 'created_at' to datetime (should be done by API/cache ideally, but ensure)
-            self.gdf[created_at_field] = pd.to_datetime(
-                self.gdf[created_at_field], errors="coerce", utc=True
-            )
-            # Drop rows where conversion failed (e.g., if cache had bad data)
-            original_len_date = len(self.gdf)
-            self.gdf = self.gdf.dropna(subset=[created_at_field])
-            if len(self.gdf) < original_len_date:
-                logger.warning(
-                    f"Dropped {original_len_date - len(self.gdf)} rows due to invalid date format in '{created_at_field}' after merge."
-                )
-
-            if self.gdf.empty:
-                logger.error("No valid segments remaining after date validation.")
-                self.gdf = None
-                return
-
-            now = pd.Timestamp.now(tz="UTC")  # Use timezone-aware timestamp
-
-            if self.settings.processing.segment_age_calculation_method == "days":
-                self.gdf["age_days"] = (now - self.gdf[created_at_field]).dt.days
-                age_col = "age_days"
-                self.gdf.loc[self.gdf[age_col] <= 0, age_col] = 1  # Min age 1 day
-            else:  # Default to years
-                self.gdf["age_years"] = (
-                    now - self.gdf[created_at_field]
-                ).dt.days / 365.25
-                age_col = "age_years"
-                self.gdf.loc[self.gdf[age_col] <= 0, age_col] = (
-                    1 / 365.25
-                )  # Min age ~1 day in years
-            logger.info(
-                f"Calculated segment age using method: '{self.settings.processing.segment_age_calculation_method}' (column: {age_col})"
-            )
-
-        except Exception as e:
-            logger.error(f"Error calculating segment age: {e}", exc_info=True)
-            # Don't raise here, allow proceeding without age-based metrics if needed
-            age_col = None
-            logger.warning("Proceeding without age column due to calculation error.")
-
-        # Calculate Popularity Metrics (using _per_age convention)
-        for metric_config_name in self.settings.processing.segment_popularity_metrics:
-            metric_col_name = metric_config_name  # Use the name directly from config
-            try:
-                # Ensure count fields are numeric
-                self.gdf[athlete_count_field] = pd.to_numeric(
-                    self.gdf[athlete_count_field], errors="coerce"
-                ).fillna(0)
-                self.gdf[star_count_field] = pd.to_numeric(
-                    self.gdf[star_count_field], errors="coerce"
-                ).fillna(0)
-
-                # Check if age calculation succeeded before calculating age-based metrics
-                is_age_metric = "per_age" in metric_col_name
-                if is_age_metric and age_col is None:
-                    logger.warning(
-                        f"Skipping age-based metric '{metric_col_name}' because age calculation failed."
-                    )
-                    self.gdf[metric_col_name] = np.nan  # Assign NaN if age is missing
-                    continue
-
-                if metric_col_name == "athletes_per_age":
-                    self.gdf[metric_col_name] = (
-                        self.gdf[athlete_count_field] / self.gdf[age_col]
-                    )
-                elif metric_col_name == "stars_per_age":
-                    self.gdf[metric_col_name] = (
-                        self.gdf[star_count_field] / self.gdf[age_col]
-                    )
-                elif metric_col_name == "stars_per_athlete":
-                    # Avoid division by zero
-                    self.gdf[metric_col_name] = np.where(
-                        self.gdf[athlete_count_field] > 0,
-                        self.gdf[star_count_field] / self.gdf[athlete_count_field],
-                        0,
-                    )
-                else:
-                    logger.warning(
-                        f"Unsupported popularity metric configured: {metric_col_name}"
-                    )
-                    continue  # Skip calculation for unsupported metrics
-
-                logger.info(f"Calculated popularity metric: {metric_col_name}")
-            except Exception as e:
-                logger.error(
-                    f"Error calculating metric '{metric_col_name}': {e}", exc_info=True
-                )
-                self.gdf[metric_col_name] = np.nan  # Assign NaN on error
-
-        # Fill any potential NaNs created during calculations
-        metric_cols_to_fill = [
-            m
-            for m in self.settings.processing.segment_popularity_metrics
-            if m in self.gdf.columns
-        ]
-        if metric_cols_to_fill:
-            self.gdf[metric_cols_to_fill] = self.gdf[metric_cols_to_fill].fillna(
-                0
-            )  # Fill NaNs with 0
-
-        logger.info("Strava segments loaded and preprocessed with API details.")
-        self._save_intermediate_gdf(self.gdf, "prepared_segments_gpkg")
-
-    @dask.delayed
-    def _build_popularity_raster(self, metric: str):
-        """Builds a popularity raster for a single metric using geokrige."""
-        logger.info(f"Building popularity raster for metric: {metric} using geokrige")
-        if self.gdf is None:
-            logger.warning("Segments GDF not loaded, attempting to load now...")
-            self.load_data()
-            if self.gdf is None:
-                raise ValueError("Segments data could not be loaded.")
-
-        # 1. Ensure metric column exists and is valid
-        if metric not in self.gdf.columns or self.gdf[metric].isna().all():
-            logger.warning(
-                f"Metric column '{metric}' not found or contains only NaN. Skipping raster generation."
-            )
-            return None
-        if not pd.api.types.is_numeric_dtype(self.gdf[metric]):
-            logger.warning(
-                f"Metric column '{metric}' is not numeric. Attempting conversion."
-            )
-            self.gdf[metric] = pd.to_numeric(self.gdf[metric], errors="coerce").fillna(
-                0
-            )  # Fill NaNs introduced by coercion
-
-        # 2. Convert polylines to points and prepare data for Kriging
-        cols_to_keep = ["geometry", metric]
-        points_gdf = polyline_to_points(self.gdf[cols_to_keep].dropna(subset=[metric]))
-
-        if points_gdf.empty:
-            logger.warning(
-                f"No valid points generated for metric '{metric}'. Skipping interpolation."
-            )
-            return None
-
-        # Extract coordinates and values
-        x_coords = points_gdf.geometry.x.to_numpy()
-        y_coords = points_gdf.geometry.y.to_numpy()
-        values = points_gdf[metric].to_numpy()
-
-        # 3. Define output grid
-        cell_size = self.settings.processing.output_cell_size
-        minx, miny, maxx, maxy = points_gdf.total_bounds
-        # Adjust bounds slightly to ensure coverage and align with cell size?
-        # Or use bounds directly. Let's use bounds directly for now.
-        grid_x = np.arange(minx, maxx + cell_size, cell_size)
-        grid_y = np.arange(miny, maxy + cell_size, cell_size)
-        # Note: geokrige expects grid coordinates, not meshgrid
-        logger.info(
-            f"Creating output grid: X({len(grid_x)} steps), Y({len(grid_y)} steps)"
-        )
-
-        # 4. Perform Ordinary Kriging
-        try:
-            logger.info(f"Running Ordinary Kriging for metric '{metric}'...")
-            # Note: geokrige parameters might differ slightly from WBT's Kriging tool
-            # We use variogram_model, range, sill, nugget from config if available
-            # geokrige might estimate these if not provided or if set to None.
-            OK = OrdinaryKriging(
-                xi=x_coords,
-                yi=y_coords,
-                zi=values,
-                xk=grid_x,
-                yk=grid_y,
-                model=self.settings.processing.kriging_model,
-                # Pass other params only if they are not None in config?
-                # Check geokrige docs for default behavior if params are None
-                # For now, let's assume geokrige handles None or uses defaults
-                # range=self.settings.processing.kriging_range,
-                # sill=self.settings.processing.kriging_sill,
-                # nugget=self.settings.processing.kriging_nugget,
-            )
-            # Execute Kriging
-            OK.execute()
-            zvalues = OK.Z  # Get interpolated values
-            # Reshape to 2D grid - Note: geokrige output might be flattened, check order
-            # Assuming output order matches grid_y then grid_x (row-major)
-            grid_shape = (len(grid_y), len(grid_x))
-            interpolated_grid = zvalues.reshape(grid_shape)
-            logger.info(f"Kriging execution complete for metric '{metric}'.")
-
-        except Exception as e:
-            logger.error(
-                f"Error during geokrige execution for {metric}: {e}", exc_info=True
-            )
-            return None
-
-        # 5. Save raster using rasterio profile
-        try:
-            # Create rasterio profile
-            transform = from_origin(
-                minx, maxy, cell_size, cell_size
-            )  # Origin is top-left
-            profile = {
-                "driver": "GTiff",
-                "height": interpolated_grid.shape[0],
-                "width": interpolated_grid.shape[1],
-                "count": 1,
-                "dtype": interpolated_grid.dtype,
-                "crs": self.gdf.crs,  # Use the CRS of the reprojected GDF
-                "transform": transform,
-                "nodata": -9999,  # Or choose an appropriate nodata value
-            }
-
-            # Use the _save_raster helper, passing the metric name
-            self._save_raster(
-                interpolated_grid,
-                profile,
-                "segment_popularity_raster_prefix",
-                metric_name=metric,
-            )
-            # The actual path is stored in self.output_paths by _save_raster
-            output_path = self.output_paths.get(
-                f"segment_popularity_raster_prefix_{metric}"
-            )
-            return str(output_path) if output_path else None
-
-        except Exception as e:
-            logger.error(
-                f"Error saving Kriging raster for {metric}: {e}", exc_info=True
-            )
-            return None
-
-    def build(self):
-        """Builds popularity rasters for all configured metrics."""
-        if self.gdf is None:
-            self.load_data()
-        if self.gdf is None:  # Check again if load_data failed
-            logger.error("Cannot build Segments features: Data loading failed.")
-            return []
-
-        tasks = []
-        # Ensure metrics exist in the dataframe after loading/preprocessing
-        available_metrics = [
-            m
-            for m in self.settings.processing.segment_popularity_metrics
-            if m in self.gdf.columns
-            and pd.api.types.is_numeric_dtype(self.gdf[m])
-            and not self.gdf[m].isna().all()
-        ]
-        skipped_metrics = [
-            m
-            for m in self.settings.processing.segment_popularity_metrics
-            if m not in available_metrics
-        ]
-        if skipped_metrics:
-            logger.warning(
-                f"Metrics configured but not found, not numeric, or all NaN in GDF: {skipped_metrics}. Skipping raster generation for these."
-            )
-
-        for metric in available_metrics:
-            tasks.append(self._build_popularity_raster(metric))
-
-        if not tasks:
-            logger.warning("No valid metrics found to build popularity rasters.")
-            return []
-
-        # Compute all raster tasks in parallel
-        logger.info(f"Computing {len(tasks)} popularity raster tasks...")
-        results = dask.compute(*tasks)
-        logger.info("Popularity raster computation finished.")
-        # Filter out None results (errors during WBT/geokrige)
-        successful_rasters = [r for r in results if r is not None]
-        return successful_rasters  # Return list of paths to generated rasters
-
-
-class Heatmap(FeatureBase):
-    """Handles Strava activity heatmap data processing."""
-
-    def load_data(self):
-        logger.warning("Heatmap (Strava Activity) loading not implemented yet.")
-        # TODO: Implement loading of GPX/TCX files from settings.paths.strava_activities_dir
-        # Needs libraries like gpxpy or similar
-        # Combine into a single GeoDataFrame with speed, time, elevation attributes
-        # self.gdf = ...
-        # self.gdf = self._reproject_if_needed(self.gdf)
-        # self._save_intermediate_gdf(self.gdf, "prepared_activities_gpkg")
-        self.gdf = None  # Placeholder
-
-    @dask.delayed
-    def _build_average_speed_raster(self):
-        logger.info("Building average speed raster...")
-        if self.gdf is None:
-            logger.warning("Heatmap data not loaded, skipping speed raster generation.")
-            return None
-
-        # TODO: Implement logic similar to Segments._build_popularity_raster
-        # 1. Convert activity lines/points to points GDF with speed attribute
-        #    (May need aggregation if multiple activities overlap a cell)
-        # 2. Save points to temporary Shapefile
-        # 3. Use WBT interpolation (e.g., IDW) with speed field
-        # 4. Save raster using _save_raster
-        # 5. Clean up temp files
-        output_raster_path = self._get_output_path("average_speed_raster")
-        logger.warning("Average speed raster generation logic not implemented.")
-        return str(output_raster_path)  # Placeholder return
-
-    def build(self):
-        if self.gdf is None:
-            self.load_data()
-        if self.gdf is None:  # Still None if loading failed/not implemented
-            return None
-
-        task = self._build_average_speed_raster()
-        result = dask.compute(task)[0]  # Compute the single task
-        return result
-
-
-class Roads(FeatureBase):
-    """Handles N50 road and bike lane data."""
-
-    def load_data(self):
-        logger.info("Loading N50 road and bike lane data...")
-        if (
-            not self.settings.paths.n50_gdb_path
-            or not self.settings.paths.n50_gdb_path.exists()
-        ):
-            logger.warning(
-                "N50 GDB path not configured or not found. Skipping Roads loading."
-            )
-            self.gdf_roads = None
-            self.gdf_lanes = None
-            return
-
-        try:
-            # Load roads
-            self.gdf_roads = load_vector_data(
-                self.settings.paths.n50_gdb_path,
-                layer=self.settings.input_data.n50_roads_layer,
-            )
-            self.gdf_roads = self._reproject_if_needed(self.gdf_roads)
-            self._save_intermediate_gdf(self.gdf_roads, "prepared_roads_gpkg")
-
-            # Load bike lanes
-            self.gdf_lanes = load_vector_data(
-                self.settings.paths.n50_gdb_path,
-                layer=self.settings.input_data.n50_bike_lanes_layer,
-            )
-            self.gdf_lanes = self._reproject_if_needed(self.gdf_lanes)
-            self._save_intermediate_gdf(self.gdf_lanes, "prepared_bike_lanes_gpkg")
-
-            # Calculate roads without lanes
-            # TODO: Refine this logic - spatial difference might be complex/slow
-            # Consider attribute-based filtering first if possible, or buffering lanes
-            logger.info("Calculating roads without bike lanes...")
-            if self.gdf_roads is not None and self.gdf_lanes is not None:
-                # Ensure consistent geometry types if needed before difference
-                # Buffer lanes slightly for more robust difference?
-                buffered_lanes = self.gdf_lanes.buffer(0.1)  # Small buffer
-                gdf_roads_no_lanes = gpd.overlay(
-                    self.gdf_roads,
-                    gpd.GeoDataFrame(geometry=buffered_lanes, crs=self.gdf_lanes.crs),
-                    how="difference",
-                )
-                self._save_intermediate_gdf(
-                    gdf_roads_no_lanes, "prepared_roads_no_lanes_gpkg"
-                )
-                self.output_paths["roads_no_lanes"] = self._get_output_path(
-                    "prepared_roads_no_lanes_gpkg"
-                )
-            else:
-                logger.warning(
-                    "Could not calculate roads without lanes due to missing inputs."
-                )
-
-            logger.info("N50 Roads/Lanes loaded and preprocessed.")
-
-        except Exception as e:
-            logger.error(f"Error loading N50 data: {e}", exc_info=True)
-            self.gdf_roads = None
-            self.gdf_lanes = None
-
-    def build(self):
-        """Build tasks related to roads (e.g., rasterization if needed)."""
-        if getattr(self, "gdf_roads", None) is None:  # Check if loaded
-            self.load_data()
-
-        # Currently, load_data saves the prepared vector files.
-        # This build step could rasterize them if needed for overlays.
-        # Example: Rasterize roads_no_lanes
-        roads_no_lanes_path = self.output_paths.get("roads_no_lanes")
-        if roads_no_lanes_path and roads_no_lanes_path.exists():
-            # TODO: Implement rasterization using WBT vector_lines_to_raster
-            logger.warning("Road rasterization not implemented.")
-            pass
-        else:
-            logger.warning("Prepared roads_no_lanes file not found, cannot rasterize.")
-
-        # Return paths to the *vector* files generated in load_data for now
-        return {
-            "roads": self.output_paths.get("prepared_roads_gpkg"),
-            "lanes": self.output_paths.get("prepared_bike_lanes_gpkg"),
-            "roads_no_lanes": roads_no_lanes_path,
-        }
-
-
-class Traffic(FeatureBase):
-    """Handles traffic count data."""
-
-    def load_data(self):
-        logger.info("Loading traffic station data...")
-        # Load station locations (assuming JSON files in traffic_stations_dir)
-        station_files = list(
-            self.settings.paths.traffic_stations_dir.glob("stations_*.json")
-        )
-        if not station_files:
-            logger.warning(
-                "No traffic station JSON files found. Skipping traffic loading."
-            )
-            self.gdf = None
-            return
-
-        all_stations = []
-        for f in station_files:
-            try:
-                station_gdf = gpd.read_file(f)
-                # TODO: Extract relevant fields (id, name, geometry) based on JSON structure
-                # Assuming GeoJSON format for simplicity
-                all_stations.append(station_gdf)
-            except Exception as e:
-                logger.warning(f"Could not load or parse station file {f}: {e}")
-
-        if not all_stations:
-            logger.warning("Failed to load any station data.")
-            self.gdf = None
-            return
-
-        stations_gdf = pd.concat(all_stations, ignore_index=True)
-        stations_gdf = self._reproject_if_needed(stations_gdf)
-
-        # Load traffic counts CSV
-        try:
-            counts_df = pd.read_csv(self.settings.paths.traffic_bikes_csv)
-            # TODO: Process counts_df (aggregate per station, filter dates, etc.)
-            # Example: Aggregate total bike volume per station ID
-            # station_agg_counts = counts_df.groupby(self.settings.input_data.traffic_station_id_field)[self.settings.input_data.traffic_bike_volume_field].sum().reset_index()
-
-            # Merge counts with station locations
-            # self.gdf = pd.merge(stations_gdf, station_agg_counts, on=self.settings.input_data.traffic_station_id_field, how='left')
-            # self.gdf[self.settings.input_data.traffic_bike_volume_field].fillna(0, inplace=True) # Handle stations with no counts
-
-            # Placeholder until merge logic is defined
-            self.gdf = stations_gdf
-            logger.warning(
-                "Traffic count merging and aggregation not fully implemented."
-            )
-
-            self._save_intermediate_gdf(self.gdf, "prepared_traffic_points_gpkg")
-            logger.info("Traffic data loaded and preprocessed.")
-
-        except FileNotFoundError:
-            logger.error(
-                f"Traffic counts CSV not found: {self.settings.paths.traffic_bikes_csv}"
-            )
-            self.gdf = None
-        except Exception as e:
-            logger.error(f"Error processing traffic data: {e}", exc_info=True)
-            self.gdf = None
-
-    @dask.delayed
-    def _build_traffic_raster(self):
-        """Interpolates traffic points to create a density raster."""
-        logger.info("Building traffic density raster...")
-        if (
-            self.gdf is None
-            or self.settings.input_data.traffic_bike_volume_field
-            not in self.gdf.columns
-        ):
-            logger.warning(
-                "Traffic data/volume field not available, skipping raster generation."
-            )
-            return None
-
-        input_shp_path = self.settings.paths.output_dir / "temp_traffic_points.shp"
-        output_raster_path = self._get_output_path("traffic_density_raster")
-
-        # Save points to temporary Shapefile for WBT
-        save_vector_data(self.gdf, input_shp_path, driver="ESRI Shapefile")
-
-        try:
-            # Use WBT IDW interpolation
-            self.wbt.idw_interpolation(
-                i=str(input_shp_path),
-                field=self.settings.input_data.traffic_bike_volume_field,
-                output=str(output_raster_path),
-                weight=self.settings.processing.traffic_interpolation_power,
-                radius=self.settings.processing.traffic_buffer_distance,  # Use buffer distance as search radius
-                cell_size=self.settings.processing.output_cell_size,
-            )
-            logger.info(f"Generated traffic density raster: {output_raster_path}")
-            self.output_paths["traffic_density_raster"] = output_raster_path
-        except Exception as e:
-            logger.error(f"Error during WBT interpolation for traffic: {e}")
-            return None
-        finally:
-            # Clean up temporary shapefile components
-            for suffix in [".shp", ".shx", ".dbf", ".prj", ".cpg"]:
-                temp_file = input_shp_path.with_suffix(suffix)
-                if temp_file.exists():
-                    temp_file.unlink()
-
-        return str(output_raster_path)
-
-    def build(self):
-        if self.gdf is None:
-            self.load_data()
-        if self.gdf is None:
-            return None
-
-        task = self._build_traffic_raster()
-        result = dask.compute(task)[0]
-        return result
-
-
-class Elevation(FeatureBase):
-    """Handles N50 elevation contour data to generate DEM and slope."""
-
-    def load_data(self):
-        logger.info("Loading N50 contour data...")
-        if (
-            not self.settings.paths.n50_gdb_path
-            or not self.settings.paths.n50_gdb_path.exists()
-        ):
-            logger.warning(
-                "N50 GDB path not configured or not found. Skipping Elevation loading."
-            )
-            self.gdf = None
-            return
-
-        try:
-            self.gdf = load_vector_data(
-                self.settings.paths.n50_gdb_path,
-                layer=self.settings.input_data.n50_contour_layer,
-            )
-            self.gdf = self._reproject_if_needed(self.gdf)
-            # TODO: Ensure elevation field exists and has correct name/type
-            # elevation_field = self.settings.input_layers.contour_elevation_field # From GIS5 config
-            # Need similar field in MCA config
-            logger.warning("Elevation field name/validation not implemented.")
-
-            self._save_intermediate_gdf(self.gdf, "prepared_contours_gpkg")
-            logger.info("N50 Contours loaded and preprocessed.")
-        except Exception as e:
-            logger.error(f"Error loading N50 contour data: {e}", exc_info=True)
-            self.gdf = None
-
-    @dask.delayed
-    def _build_dem_and_slope(self):
-        """Generates DEM and Slope rasters from contours."""
-        logger.info("Building DEM and Slope rasters...")
-        if self.gdf is None:
-            logger.warning("Contour data not available, skipping DEM/Slope generation.")
-            return None, None
-
-        contour_shp_path = self.settings.paths.output_dir / "temp_contours.shp"
-        dem_path = self._get_output_path("elevation_dem_raster")
-        slope_path = self._get_output_path("slope_raster")
-
-        # Save contours to temporary Shapefile
-        save_vector_data(self.gdf, contour_shp_path, driver="ESRI Shapefile")
-
-        dem_generated = False
-        try:
-            # Interpolate contours to DEM using WBT
-            # TODO: Choose appropriate tool (e.g., TopoToRaster variants if available/licensed, or simpler interpolation)
-            # Using Natural Neighbor as an example - requires points
-            logger.info("Converting contours to points for interpolation...")
-            points_gdf = polyline_to_points(self.gdf)
-            points_shp_path = self.settings.paths.output_dir / "temp_contour_points.shp"
-            save_vector_data(points_gdf, points_shp_path, driver="ESRI Shapefile")
-
-            # TODO: Get elevation field name from settings
-            elevation_field = "hoyde"  # Placeholder from GIS5 config
-            logger.warning(f"Using placeholder elevation field: {elevation_field}")
-
-            self.wbt.natural_neighbor_interpolation(
-                i=str(points_shp_path),
-                field=elevation_field,
-                output=str(dem_path),
-                cell_size=self.settings.processing.output_cell_size,
-            )
-            logger.info(f"Generated DEM raster: {dem_path}")
-            self.output_paths["elevation_dem_raster"] = dem_path
-            dem_generated = True
-
-            # Calculate Slope from DEM
-            self.wbt.slope(
-                dem=str(dem_path),
-                output=str(slope_path),
-                zfactor=1.0,
-                units=self.settings.processing.slope_units,
-            )
-            logger.info(f"Generated Slope raster: {slope_path}")
-            self.output_paths["slope_raster"] = slope_path
-
-        except Exception as e:
-            logger.error(f"Error during WBT DEM/Slope generation: {e}")
-            return None, None  # Return None for both if error occurs
-        finally:
-            # Clean up temporary shapefiles
-            for suffix in [".shp", ".shx", ".dbf", ".prj", ".cpg"]:
-                temp_c = contour_shp_path.with_suffix(suffix)
-                temp_p = points_shp_path.with_suffix(suffix)
-                if temp_c.exists():
-                    temp_c.unlink()
-                if temp_p.exists():
-                    temp_p.unlink()
-
-        return str(dem_path) if dem_generated else None, (
-            str(slope_path) if dem_generated else None
-        )
-
-    def build(self):
-        if self.gdf is None:
-            self.load_data()
-        if self.gdf is None:
-            return None, None
-
-        task = self._build_dem_and_slope()
-        dem_result, slope_result = dask.compute(task)[0]
-        return dem_result, slope_result
-
-
-class CostDistance(FeatureBase):
-    """Calculates a cost surface based on slope, speed, and road restrictions."""
-
-    # This class needs access to the outputs of other features (Slope, Roads, maybe Heatmap)
-    # It might be better structured as a function called *after* other features are built,
-    # or it needs references to the other feature objects.
-
-    def __init__(
-        self,
-        settings: AppConfig,
-        wbt: WhiteboxTools,
-        slope_raster_path: Path,
-        roads_raster_path: Path = None,
-        speed_raster_path: Path = None,
-    ):
-        super().__init__(settings, wbt)
-        self.slope_raster_path = slope_raster_path
-        self.roads_raster_path = roads_raster_path  # Optional rasterized roads
-        self.speed_raster_path = speed_raster_path  # Optional speed raster
-
-    def load_data(self):
-        # No specific data loading here, relies on inputs passed to __init__
-        logger.info("CostDistance initialized with input raster paths.")
-        if not self.slope_raster_path or not self.slope_raster_path.exists():
-            raise FileNotFoundError("Slope raster path is required for CostDistance.")
-
-    @dask.delayed
-    def _build_cost_raster(self):
-        """Builds the cost raster by combining inputs."""
-        logger.info("Building cost function raster...")
-        output_path = self._get_output_path("cost_function_raster")
-
-        # TODO: Implement cost calculation using WBT raster calculator or Python logic
-        # Example logic (needs refinement and actual WBT calls):
-        # 1. Load slope raster data (use utils.load_raster_data)
-        # 2. Apply slope weight: cost = slope * settings.processing.cost_slope_weight
-        # 3. If speed raster exists:
-        #    - Load speed raster data
-        #    - Apply speed weight: cost = cost + (speed * settings.processing.cost_speed_weight)
-        # 4. If roads raster exists (as restriction):
-        #    - Load roads raster (where roads=1, non-roads=0 or nodata)
-        #    - Set cost to a very high value or nodata where roads raster is not 1
-        # 5. Save the final cost raster using _save_raster
-
-        logger.warning("Cost raster generation logic not implemented.")
-        # Placeholder: Copy slope raster as cost raster for now
-        if self.slope_raster_path:
-            try:
-                slope_data, profile = load_raster_data(self.slope_raster_path)
-                self._save_raster(slope_data, profile, "cost_function_raster")
-                logger.info(f"Placeholder: Copied slope raster to {output_path}")
-                return str(output_path)
-            except Exception as e:
-                logger.error(f"Failed to create placeholder cost raster: {e}")
-                return None
-        return None
-
-    def build(self):
-        self.load_data()  # Basic check
-        task = self._build_cost_raster()
-        result = dask.compute(task)[0]
-        return result
+from src.config import AppConfig, settings as app_settings
+
+logger = logging.getLogger(__name__)  # Define logger earlier
+
+# Import feature classes from the new subdirectory
+try:
+    from .features.segments import Segments
+    from .features.heatmap import Heatmap
+    from .features.traffic import Traffic
+    from .features.roads import Roads
+    from .features.elevation import Elevation
+    from .features.cost_distance import CostDistance
+except ImportError:
+    # Fallback for potential execution from different relative paths
+    logger.warning(
+        "Could not import from .features.* directly, attempting relative import..."
+    )
+    from features.segments import Segments
+    from features.heatmap import Heatmap
+    from features.traffic import Traffic
+    from features.roads import Roads
+    from features.elevation import Elevation
+    from features.cost_distance import CostDistance
 
 
 # --- Main Task Function ---
@@ -1113,7 +35,8 @@ class CostDistance(FeatureBase):
 
 def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     """
-    Main task function to build all features.
+    Main task function to build all features by initializing and running
+    individual feature classes.
 
     Args:
         settings (AppConfig): Application configuration object.
@@ -1125,27 +48,32 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     """
     logger.info("--- Start Feature Building Task ---")
 
-    # Initialize Dask client (consider managing client lifecycle outside this function if calling multiple tasks)
-    # client = Client() # Removed - manage client in workflow.py if needed across tasks
-
     # Initialize Feature Objects
+    # Pass settings and wbt instance to each feature class
     segments = Segments(settings, wbt)
     heatmap = Heatmap(settings, wbt)
     traffic = Traffic(settings, wbt)
     roads = Roads(settings, wbt)
     elevation = Elevation(settings, wbt)
+    # CostDistance requires outputs from others, initialized later
 
-    # Build features - results contain paths or data needed for subsequent steps
-    # Run load_data explicitly first (or ensure build calls it)
+    # Load data for all features first (can happen in parallel if desired, but sequential is simpler)
     logger.info("Loading data for all features...")
-    segments.load_data()
-    heatmap.load_data()
-    traffic.load_data()
-    roads.load_data()
-    elevation.load_data()
-    logger.info("Data loading complete.")
+    try:
+        segments.load_data()
+        heatmap.load_data()  # Will log warnings as it's not implemented
+        traffic.load_data()
+        roads.load_data()
+        elevation.load_data()
+    except Exception as e:
+        logger.error(f"Fatal error during data loading phase: {e}", exc_info=True)
+        # Depending on requirements, might want to exit or continue with available data
+        # For now, let's log the error and attempt to build with whatever loaded
+        # sys.exit(1) # Or exit if loading is critical
 
-    # Build features using Dask where applicable
+    logger.info("Data loading phase complete.")
+
+    # Build features using Dask where applicable (build methods handle dask.delayed)
     logger.info("Building feature layers...")
     segment_raster_paths = segments.build()  # Returns list of paths
     speed_raster_path = heatmap.build()  # Returns path or None
@@ -1153,19 +81,32 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     road_vector_paths = roads.build()  # Returns dict of paths
     dem_path, slope_path = elevation.build()  # Returns two paths or None
 
-    # Cost distance depends on slope, potentially roads/speed
+    # Initialize and build Cost distance (depends on slope)
     cost_distance = None
+    cost_raster_path = None
     if slope_path:
-        # TODO: Decide if roads/speed rasters are needed/generated for cost function
-        cost_distance = CostDistance(settings, wbt, slope_raster_path=Path(slope_path))
-        cost_raster_path = cost_distance.build()
+        try:
+            # Pass necessary raster paths (ensure they are Path objects)
+            cost_distance = CostDistance(
+                settings,
+                wbt,
+                slope_raster_path=Path(slope_path),
+                # roads_raster_path=Path(road_vector_paths.get("roads_rasterized")), # If roads are rasterized
+                speed_raster_path=(
+                    Path(speed_raster_path) if speed_raster_path else None
+                ),
+            )
+            cost_raster_path = cost_distance.build()  # This returns the path or None
+        except FileNotFoundError as e:
+            logger.error(f"Could not initialize CostDistance: {e}")
+        except Exception as e:
+            logger.error(f"Error building CostDistance: {e}", exc_info=True)
     else:
         logger.warning(
             "Skipping Cost Distance calculation as slope raster was not generated."
         )
-        cost_raster_path = None
 
-    # Consolidate results
+    # Consolidate results, including paths to saved intermediate files
     results = {
         "segments": segments,  # Keep object for potential later use
         "segment_rasters": segment_raster_paths,
@@ -1192,27 +133,35 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
         "prepared_contours": elevation.output_paths.get("prepared_contours_gpkg"),
     }
 
-    # client.close() # Removed - manage client in workflow.py if used across tasks
-
     logger.info("--- Feature Building Task Completed ---")
     # Log generated paths for clarity
-    logger.info("Generated outputs:")
+    logger.info("Generated outputs (Paths):")
     for key, value in results.items():
-        if isinstance(value, Path) or isinstance(value, str) and Path(value).exists():
+        # Log paths, lists of paths, or dicts of paths
+        if isinstance(value, Path) or (isinstance(value, str) and Path(value).exists()):
             logger.info(f"  - {key}: {value}")
         elif isinstance(value, list) and all(
             isinstance(item, (str, Path)) for item in value
         ):
-            logger.info(f"  - {key}: {[str(p) for p in value]}")  # Log list of paths
+            logger.info(f"  - {key}: {[str(p) for p in value]}")
         elif isinstance(value, dict) and all(
-            isinstance(item, (str, Path)) for item in value.values()
+            isinstance(item, (str, Path, type(None))) for item in value.values()
         ):
-            logger.info(
-                f"  - {key}: {{k: str(v) for k, v in value.items()}}"
-            )  # Log dict of paths
+            # Filter out None values before logging dict paths
+            valid_paths = {k: str(v) for k, v in value.items() if v}
+            if valid_paths:
+                logger.info(f"  - {key}: {valid_paths}")
         # Avoid logging entire objects/dataframes
-        elif isinstance(value, (pd.DataFrame, gpd.GeoDataFrame, FeatureBase)):
+        elif (
+            hasattr(value, "__class__")
+            and "feature_base" in str(value.__class__).lower()
+        ):
             logger.info(f"  - {key}: <{type(value).__name__} object>")
+        # Log None values explicitly if they are direct results
+        elif value is None and key.endswith(
+            ("_path", "_paths", "_raster", "_rasters", "_vector", "_vectors")
+        ):
+            logger.info(f"  - {key}: None")
 
     return results
 
@@ -1224,7 +173,7 @@ if __name__ == "__main__":
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
-    logger.info("--- Running build_features.py Standalone Test ---")
+    logger.info("--- Running build_features.py Refactored Standalone Test ---")
 
     # Use settings loaded from config.py
     settings = app_settings
@@ -1253,63 +202,19 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Failed to start Dask client: {e}")
         client = None  # Allow proceeding without Dask if it fails? Or exit?
-        # sys.exit(1) # Exit if Dask is critical
 
-    # --- Test Segments Feature ---
+    # --- Test build_features_task ---
     try:
-        logger.info("--- Testing Segments Feature ---")
-        segments_feature = Segments(settings, wbt)
-
-        logger.info("1. Testing Segments Load Data...")
-        segments_feature.load_data()
-        if segments_feature.gdf is not None:
-            logger.info(
-                f"Segments loaded successfully. Shape: {segments_feature.gdf.shape}"
-            )
-            print("Sample preprocessed segments data:")
-            print(segments_feature.gdf.head())
-            # Check if metric columns were added
-            expected_metrics = settings.processing.segment_popularity_metrics
-            actual_metrics = [
-                m for m in expected_metrics if m in segments_feature.gdf.columns
-            ]
-            logger.info(f"Expected metrics: {expected_metrics}")
-            logger.info(f"Actual metrics found in GDF: {actual_metrics}")
-        else:
-            logger.error("Segments GDF is None after loading.")
-
-        logger.info("2. Testing Segments Build (Popularity Rasters)...")
-        # Ensure data is loaded before building
-        if segments_feature.gdf is not None:
-            raster_paths = segments_feature.build()
-            logger.info(f"Segments build process completed.")
-            if raster_paths:
-                logger.info("Generated Popularity Rasters:")
-                for path in raster_paths:
-                    logger.info(f"  - {path}")
-            else:
-                logger.warning(
-                    "No popularity rasters were generated (check logs for errors)."
-                )
-        else:
-            logger.warning("Skipping Segments build test as data loading failed.")
-
-        logger.info("--- Segments Feature Test Completed ---")
+        logger.info("--- Testing build_features_task ---")
+        # This will run load_data and build for all features defined within it
+        task_results = build_features_task(settings, wbt)
+        logger.info("--- build_features_task Test Completed ---")
+        # Optionally print specific results from the dictionary
+        # print("Prepared Segments Path:", task_results.get("prepared_segments"))
+        # print("Segment Rasters:", task_results.get("segment_rasters"))
 
     except Exception as e:
-        logger.error(f"Error during Segments test: {e}", exc_info=True)
-
-    # --- Add tests for other features here as they are implemented ---
-    # try:
-    #     logger.info("--- Testing Heatmap Feature ---")
-    #     heatmap_feature = Heatmap(settings, wbt)
-    #     heatmap_feature.load_data()
-    #     heatmap_feature.build()
-    #     logger.info("--- Heatmap Feature Test Completed ---")
-    # except Exception as e:
-    #     logger.error(f"Error during Heatmap test: {e}", exc_info=True)
-
-    # ... etc. for Traffic, Roads, Elevation, CostDistance ...
+        logger.error(f"Error during build_features_task test: {e}", exc_info=True)
 
     # Clean up Dask client
     if client:
