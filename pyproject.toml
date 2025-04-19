@@ -30,6 +30,7 @@ dependencies = [
     "grass>=0.1.2",
     "dask>=2025.3.0",
     "distributed>=2025.3.0",
+    "geokrige>=0.0.1",
 ]
 
 [project.optional-dependencies]
