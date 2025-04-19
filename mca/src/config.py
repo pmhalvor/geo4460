@@ -166,16 +166,17 @@ class OutputFilesConfig(BaseModel):
 class ProcessingConfig(BaseModel):
     """Parameters controlling the processing steps."""
 
+    # WhiteboxTools Settings
+    wbt_verbose: bool = False
+
     # General Raster Settings
     output_crs_epsg: int = 25833  # UTM Zone 33N for Oslo
     output_cell_size: float = 15.0  # Meters, adjust as needed
     interpolation_method_points: str = "idw"  # e.g., idw, kriging, natural_neighbor
     interpolation_method_polylines: str = (
-        "nn"
+        "tin"
         # Method for interpolating segment points: 'idw', 'nn', 'tin', 'kriging' (broke)
     )
-    # WhiteboxTools Settings
-    wbt_verbose: bool = False
 
     # Feature Generation Settings
     segment_popularity_metrics: List[str] = Field(
@@ -190,6 +191,8 @@ class ProcessingConfig(BaseModel):
     segment_popularity_idw_min_points: int = 5
     segment_popularity_idw_power: float = 3.0
     segment_popularity_idw_radius: float = 500.0  # Meters
+    segment_popularity_nn_max_dist: float = 1000.0  # Meters
+    segment_popularity_tin_max_triangle_edge_length: float = 100.0  # Meters
     segment_age_calculation_method: str = (
         "days"  # 'days', 'years' - determines denominator for _per_age metrics
     )

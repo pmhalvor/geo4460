@@ -567,6 +567,7 @@ class Segments(FeatureBase):
                 field=sanitized_metric_field,
                 output=str(output_raster_path),
                 cell_size=self.settings.processing.output_cell_size,
+                max_dist=self.settings.processing.segment_popularity_nn_max_dist,
                 # Add other NN specific parameters from settings if needed
             )
             logger.info(f"Generated NN popularity raster: {output_raster_path}")
@@ -639,6 +640,7 @@ class Segments(FeatureBase):
                 field=sanitized_metric_field,
                 output=str(output_raster_path),
                 resolution=self.settings.processing.output_cell_size,
+                max_triangle_edge_length=self.settings.processing.segment_popularity_tin_max_triangle_edge_length,
                 # Add other TIN specific parameters from settings if needed (e.g., interp_parameter)
             )
             logger.info(f"Generated TIN popularity raster: {output_raster_path}")
