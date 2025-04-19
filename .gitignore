@@ -33,6 +33,7 @@ downloads/
 *.tfw
 *.xml
 *.gdb
+*.gpkg
 
 
 
