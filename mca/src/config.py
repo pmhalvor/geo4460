@@ -1,6 +1,6 @@
 from pathlib import Path
 from pydantic import BaseModel, Field, DirectoryPath, FilePath
-from typing import Optional, List, Dict
+from typing import Optional, List
 from datetime import datetime
 
 # Determine the base directory relative to this config file
@@ -15,7 +15,8 @@ class PathsConfig(BaseModel):
     data_dir: DirectoryPath = Field(default_factory=lambda: BASE_DIR / "data")
     output_dir: Path = Field(
         default_factory=lambda: BASE_DIR
-        / f"output_mca_{datetime.now().strftime('%Y%m%d_%H%M')}"
+        / "output"
+        / f"mca_{datetime.now().strftime('%Y%m%d_%H%M')}"
     )
     # Specific input data paths (relative to data_dir or base_dir)
     strava_segments_geojson: FilePath = Field(
