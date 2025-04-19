@@ -1,5 +1,3 @@
-import pandas as pd
-import geopandas as gpd
 import numpy as np
 
 from strava.explore import explore_segments, store_segments
