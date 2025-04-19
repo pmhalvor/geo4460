@@ -171,7 +171,7 @@ class ProcessingConfig(BaseModel):
     output_cell_size: float = 15.0  # Meters, adjust as needed
     interpolation_method_points: str = "idw"  # e.g., idw, kriging, natural_neighbor
     interpolation_method_polylines: str = (
-        "tin"
+        "nn"
         # Method for interpolating segment points: 'idw', 'nn', 'tin', 'kriging' (broke)
     )
     # WhiteboxTools Settings
