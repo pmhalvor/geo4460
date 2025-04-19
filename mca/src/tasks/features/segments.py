@@ -884,9 +884,9 @@ if __name__ == "__main__":
         logger.info("2. Testing Segments Build (Popularity Rasters)...")
 
         if segments_feature.gdf is not None:
-            settings.processing.interpolation_method_polylines = (
-                "idw"  # Explicitly set to IDW for testing
-            )
+            # settings.processing.interpolation_method_polylines = (
+            #     "idw"  # Explicitly set to IDW for testing
+            # )
             logger.info(
                 f"Testing build with interpolation method: {settings.processing.interpolation_method_polylines}"
             )

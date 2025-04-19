@@ -168,10 +168,10 @@ class ProcessingConfig(BaseModel):
 
     # General Raster Settings
     output_crs_epsg: int = 25833  # UTM Zone 33N for Oslo
-    output_cell_size: float = 10.0  # Meters, adjust as needed
+    output_cell_size: float = 15.0  # Meters, adjust as needed
     interpolation_method_points: str = "idw"  # e.g., idw, kriging, natural_neighbor
     interpolation_method_polylines: str = (
-        "idw"
+        "tin"
         # Method for interpolating segment points: 'idw', 'nn', 'tin', 'kriging' (broke)
     )
     # WhiteboxTools Settings
@@ -194,7 +194,7 @@ class ProcessingConfig(BaseModel):
         "days"  # 'days', 'years' - determines denominator for _per_age metrics
     )
     strava_api_request_delay: float = (
-        0.25  # Seconds delay between API calls to avoid rate limits
+        0.05  # Seconds delay between API calls to avoid rate limits
     )
 
     traffic_buffer_distance: float = 500.0  # Meters, for buffering traffic stations
