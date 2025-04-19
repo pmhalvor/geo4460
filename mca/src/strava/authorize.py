@@ -30,9 +30,21 @@ def get_authorization_url():
 
 
 def authorize():
-    print("Starting flask server at mca/src/strava/flask_app.py from ", os.getcwd())
-    # TODO make more robust path handling
-    flask_process = subprocess.Popen(["python", "mca/src/strava/flask_app.py"])
+    print("Starting flask server...")
+
+    # Get the absolute path to the flask app
+    flask_app_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "src",
+        "strava",
+        "flask_app.py",
+    )
+
+    # Make sure token directory exists
+    token_dir = os.path.dirname(os.path.abspath(TOKEN_PATH))
+    os.makedirs(token_dir, exist_ok=True)
+
+    flask_process = subprocess.Popen(["python", flask_app_path])
     time.sleep(1)  # waits for server to be fully loaded
 
     auth_url = get_authorization_url()
@@ -43,21 +55,26 @@ def authorize():
     while True:
         time.sleep(1)
 
-        response = requests.get("http://localhost:3333/code")
-        if response.status_code == 200:
-            auth_code = response.text
-            break
-        else:
-            print("Waiting for user to authorize...")
+        try:
+            response = requests.get("http://localhost:3333/code")
+            if response.status_code == 200:
+                auth_code = response.text
+                break
+        except requests.exceptions.ConnectionError:
+            pass
+
+        print("Waiting for user to authorize...")
 
     flask_process.kill()
 
     token_data = exchange_code_for_token(auth_code)
 
-    with open(TOKEN_PATH, "w") as f:
+    # Use absolute path for token file
+    token_file_path = os.path.abspath(TOKEN_PATH)
+    with open(token_file_path, "w") as f:
         json.dump(token_data, f, indent=4)
 
-    print(f"Authorization successful! Find token at {os.getcwd()}/{TOKEN_PATH}")
+    print(f"Authorization successful! Token saved to {token_file_path}")
 
 
 def exchange_code_for_token(auth_code):

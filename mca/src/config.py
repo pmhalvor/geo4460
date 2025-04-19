@@ -17,9 +17,11 @@ class PathsConfig(BaseModel):
         default_factory=lambda: BASE_DIR
         / f"output_mca_{datetime.now().strftime('%Y%m%d_%H%M')}"
     )
-    # Specific input data paths (relative to data_dir)
+    # Specific input data paths (relative to data_dir or base_dir)
     strava_segments_geojson: FilePath = Field(
-        default_factory=lambda: PathsConfig().data_dir
+        # Use BASE_DIR directly in lambda to avoid potential recursion
+        default_factory=lambda: BASE_DIR
+        / "data"
         / "segments"
         / "segments_oslo.geojson"
     )
@@ -27,23 +29,35 @@ class PathsConfig(BaseModel):
         default=None, description="Directory containing Strava activity GPX/TCX files"
     )  # TODO change based on gathered data
     traffic_bikes_csv: FilePath = Field(
-        default_factory=lambda: PathsConfig().data_dir
+        # Use BASE_DIR directly in lambda
+        default_factory=lambda: BASE_DIR
+        / "data"
         / "traffic"
         / "all-oslo-bikes-day_20240101T0000_20250101T0000.csv"
     )
     traffic_stations_dir: DirectoryPath = Field(
-        default_factory=lambda: PathsConfig().data_dir / "traffic",
+        # Use BASE_DIR directly in lambda
+        default_factory=lambda: BASE_DIR / "data" / "traffic",
         description="Directory containing traffic station JSON files (e_road, f_road etc.)",
     )
     n50_gdb_path: Optional[FilePath] = Field(
         default=None, description="Path to the N50 Geodatabase (if used)"
     )  # TODO should not be optional, but for now it is
+    # Cache file for segment details fetched from API
+    segment_details_cache_csv: Path = Field(
+        default_factory=lambda: BASE_DIR
+        / "data"
+        / "segments"
+        / "segment_details_cache.csv"
+    )
 
     # Ensure directories exist or create them if needed
     def __init__(self, **data):
         super().__init__(**data)
         # Ensure output directory exists after initialization
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        # Ensure cache directory exists
+        self.segment_details_cache_csv.parent.mkdir(parents=True, exist_ok=True)
 
         # Validate essential input directories/files exist
         if not self.data_dir.is_dir():
@@ -81,9 +95,7 @@ class InputDataConfig(BaseModel):
 
     # Strava Segments Fields
     segment_id_field: str = "id"
-    segment_polyline_field: str = (
-        "polyline"  # Assuming GeoJSON geometry is implicitly handled
-    )
+    segment_polyline_field: str = "polyline"
     segment_athlete_count_field: str = "athlete_count"
     segment_effort_count_field: str = "effort_count"
     segment_star_count_field: str = "star_count"
@@ -119,7 +131,7 @@ class OutputFilesConfig(BaseModel):
 
     # Feature Rasters
     segment_popularity_raster_prefix: str = (
-        "segment_popularity"  # e.g., segment_popularity_athletes_per_day.tif
+        "segment_popularity"  # e.g., segment_popularity_athletes_per_age.tif
     )
     average_speed_raster: str = "average_speed.tif"
     traffic_density_raster: str = "traffic_density.tif"
@@ -164,16 +176,32 @@ class ProcessingConfig(BaseModel):
 
     # Feature Generation Settings
     segment_popularity_metrics: List[str] = Field(
-        default=["athletes_per_day", "stars_per_day", "stars_per_athlete"],
+        default=[
+            "athletes_per_age",
+            "stars_per_age",
+            "stars_per_athlete",
+        ],  # Default metrics use _per_age
         description="Metrics to calculate for segment popularity.",
     )
-    segment_age_calculation_method: str = "days"  # 'days', 'years'
+    segment_age_calculation_method: str = (
+        "days"  # 'days', 'years' - determines denominator for _per_age metrics
+    )
+    strava_api_request_delay: float = (
+        2.0  # Seconds delay between API calls to avoid rate limits
+    )
+
     traffic_buffer_distance: float = 500.0  # Meters, for buffering traffic stations
     traffic_interpolation_power: float = 2.0  # For IDW interpolation
     road_buffer_distance: Optional[float] = Field(
         default=5.0, description="Optional buffer for road/lane matching (meters)"
     )
     slope_units: str = "degrees"  # 'degrees' or 'percent'
+
+    # Kriging specific parameters (if used for popularity)
+    kriging_model: str = "spherical"  # e.g., spherical, exponential, gaussian
+    kriging_range: Optional[float] = None  # Search radius (if None, WBT might estimate)
+    kriging_sill: Optional[float] = None
+    kriging_nugget: Optional[float] = None
 
     # Cost Function Settings
     cost_slope_weight: float = 1.0
@@ -212,6 +240,9 @@ if __name__ == "__main__":
     print(f"Data Directory: {settings.paths.data_dir}")
     print(f"Output Directory: {settings.paths.output_dir}")
     print(f"Strava Segments: {settings.paths.strava_segments_geojson}")
+    print(
+        f"Segment Cache: {settings.paths.segment_details_cache_csv}"
+    )  # Updated cache path print
     print(f"Output CRS EPSG: {settings.processing.output_crs_epsg}")
     print(f"Output Cell Size: {settings.processing.output_cell_size}")
     print(

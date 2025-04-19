@@ -5,17 +5,35 @@ import pandas as pd
 import polyline
 
 from shapely.geometry import LineString
-from authorize import get_token
 import folium
 import webbrowser
 
+# Try different import paths to work regardless of current directory
+try:
+    from src.strava.authorize import get_token
+except ImportError:
+    try:
+        from authorize import get_token
+    except ImportError:
+        from strava.authorize import get_token
 
 # ensure valid token is present
 get_token()
 
+# Get the base directory (project root) to make paths absolute
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-SEGMENT_SHAPEFILE_PATH = "mca/data/segments/segments_oslo_4258.shp"
-SEGMENT_METADATA_PATH = "mca/data/segments/segments_oslo.geojson"
+# Define paths with os.path.join to be platform-independent
+SEGMENT_SHAPEFILE_PATH = os.path.join(
+    BASE_DIR, "data", "segments", "segments_oslo_4258.shp"
+)
+SEGMENT_METADATA_PATH = os.path.join(
+    BASE_DIR, "data", "segments", "segments_oslo.geojson"
+)
+
+# Create directories if they don't exist
+os.makedirs(os.path.dirname(SEGMENT_SHAPEFILE_PATH), exist_ok=True)
+os.makedirs(os.path.dirname(SEGMENT_METADATA_PATH), exist_ok=True)
 
 
 def explore_segments(
@@ -181,6 +199,9 @@ def get_segment_details(segment):
 
     if response.status_code == 200:
         return response.json()
+    elif response.status_code == 429:
+        print("Rate limit exceeded. Please wait before making more requests.")
+        return response.status_code
     else:
         print(f"Failed to get segment details: {response.status_code} {response.text}")
         return None

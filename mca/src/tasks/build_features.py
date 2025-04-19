@@ -1,15 +1,30 @@
 import logging
+import sys  # Added for main block
 import dask
 import time
+import numpy as np  # Added numpy import
 import pandas as pd
 import geopandas as gpd
 from abc import ABC, abstractmethod
 from pathlib import Path
-from dask.distributed import Client
+from tqdm import tqdm  # Added for progress bar
+
+from dask.distributed import Client, LocalCluster  # Added LocalCluster for main block
 from whitebox import WhiteboxTools
+import polyline  # Added for decoding Strava polylines
+from shapely.geometry import LineString  # Added for creating geometry
+from geokrige.methods import OrdinaryKriging  # Import geokrige
+from rasterio.transform import from_origin  # Needed for profile creation
+
 
 # Local imports
-from src.config import AppConfig
+from src.config import (
+    AppConfig,
+    settings as app_settings,
+)  # Import settings for main block
+
+# Import the function to get segment details
+from src.strava.explore import get_segment_details
 from src.utils import (
     load_vector_data,
     save_vector_data,
@@ -94,11 +109,16 @@ class FeatureBase(ABC):
         self.output_paths[output_key] = path
         logger.info(f"Saved intermediate vector data: {path}")
 
-    def _save_raster(self, array, profile, output_key: str):
-        """Saves a raster file."""
+    def _save_raster(self, array, profile, output_key: str, metric_name: str = None):
+        """Saves a raster file, optionally appending a metric name."""
         path = self._get_output_path(output_key)
+        if metric_name:
+            # Append metric name before the suffix
+            path = path.parent / f"{path.stem}_{metric_name}{path.suffix}"
         save_raster_data(array, profile, path)
-        self.output_paths[output_key] = path
+        # Store the actual path used, including the metric name
+        output_key_metric = f"{output_key}_{metric_name}" if metric_name else output_key
+        self.output_paths[output_key_metric] = path
         logger.info(f"Saved raster data: {path}")
 
     def _reproject_if_needed(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
@@ -119,92 +139,550 @@ class Segments(FeatureBase):
     """Handles Strava segment data processing."""
 
     def load_data(self):
-        logger.info("Loading Strava segments...")
-        self.gdf = load_vector_data(self.settings.paths.strava_segments_geojson)
-        self.gdf = self._reproject_if_needed(self.gdf)
-        # TODO: Add preprocessing steps (calculate age, metrics)
-        # Example: Calculate age in days
-        # self.gdf[self.settings.input_data.segment_created_at_field] = pd.to_datetime(self.gdf[self.settings.input_data.segment_created_at_field])
-        # self.gdf['age_days'] = (pd.Timestamp.now(tz='UTC') - self.gdf[self.settings.input_data.segment_created_at_field]).dt.days
-        # Example: Calculate metrics
-        # for metric in self.settings.processing.segment_popularity_metrics:
-        #     if metric == "athletes_per_day":
-        #         # self.gdf[metric] = self.gdf[self.settings.input_data.segment_athlete_count_field] / self.gdf['age_days']
-        #         pass # Implement calculation
-        #     # ... other metrics
-        logger.info("Strava segments loaded and reprojected.")
+        logger.info("Loading and preprocessing Strava segments...")
+        initial_gdf = load_vector_data(self.settings.paths.strava_segments_geojson)
+        segment_id_field = self.settings.input_data.segment_id_field
+
+        if segment_id_field not in initial_gdf.columns:
+            raise ValueError(
+                f"Segment ID field '{segment_id_field}' not found in {self.settings.paths.strava_segments_geojson}"
+            )
+
+        # --- API Fetching and Caching (CSV) ---
+        cache_path = self.settings.paths.segment_details_cache_csv
+        # Define columns for cache (essential details needed for preprocessing)
+        athlete_count_field = self.settings.input_data.segment_athlete_count_field
+        star_count_field = self.settings.input_data.segment_star_count_field
+        created_at_field = self.settings.input_data.segment_created_at_field
+        # Add other fields potentially useful from API details
+        effort_count_field = self.settings.input_data.segment_effort_count_field
+        distance_field = self.settings.input_data.segment_distance_field
+        elevation_diff_field = self.settings.input_data.segment_elevation_diff_field
+
+        cache_cols = [
+            segment_id_field,
+            athlete_count_field,
+            star_count_field,
+            created_at_field,
+            effort_count_field,
+            distance_field,
+            elevation_diff_field,
+        ]
+        segment_details_cache_df = pd.DataFrame(columns=cache_cols)  # Initialize empty
+
+        if cache_path.exists():
+            try:
+                segment_details_cache_df = pd.read_csv(cache_path)
+                # Ensure ID column is the correct type for merging
+                if not segment_details_cache_df.empty:
+                    segment_details_cache_df[segment_id_field] = (
+                        segment_details_cache_df[segment_id_field].astype(
+                            initial_gdf[segment_id_field].dtype
+                        )
+                    )
+                logger.info(
+                    f"Loaded {len(segment_details_cache_df)} segment details from CSV cache: {cache_path}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Could not load or parse CSV cache file {cache_path}: {e}. Starting with empty cache."
+                )
+                segment_details_cache_df = pd.DataFrame(
+                    columns=cache_cols
+                )  # Ensure empty df has columns
+
+        # Identify segments needing details fetched
+        cached_ids = set()
+        if not segment_details_cache_df.empty:
+            # Also check for entries where fetching might have failed previously (e.g., created_at is NaN)
+            valid_cache_df = segment_details_cache_df.dropna(subset=[created_at_field])
+            cached_ids = set(valid_cache_df[segment_id_field].unique())
+
+        ids_to_fetch = (
+            initial_gdf[~initial_gdf[segment_id_field].isin(cached_ids)][
+                segment_id_field
+            ]
+            .unique()
+            .tolist()
+        )
+
+        newly_fetched_details = []
+        if ids_to_fetch:
+            logger.info(
+                f"Fetching details for {len(ids_to_fetch)} segments not found or incomplete in cache..."
+            )
+            for segment_id in tqdm(ids_to_fetch, desc="Fetching Segment Details"):
+                segment_input = {"id": segment_id}  # Input for get_segment_details
+                details = get_segment_details(segment_input)
+                if details:
+                    # Extract only the needed columns for the cache
+                    detail_subset = {
+                        col: details.get(col) for col in cache_cols if col in details
+                    }
+                    detail_subset[segment_id_field] = segment_id  # Ensure ID is present
+                    newly_fetched_details.append(detail_subset)
+                    logger.debug(
+                        f"Successfully fetched details for segment ID: {segment_id}"
+                    )
+                else:
+                    logger.warning(
+                        f"Failed to fetch details for segment ID: {segment_id}"
+                    )
+                    # Add a placeholder with the ID and Nones/NaNs for other cache cols
+                    placeholder = {col: np.nan for col in cache_cols}
+                    placeholder[segment_id_field] = segment_id
+                    newly_fetched_details.append(placeholder)
+
+                # Respect API rate limits
+                time.sleep(self.settings.processing.strava_api_request_delay)
+
+            # Update cache if new details were fetched
+            if newly_fetched_details:
+                new_details_df = pd.DataFrame(newly_fetched_details)
+                # Combine old cache with new details
+                # Ensure consistent dtypes before concat if possible, especially for ID
+                if not segment_details_cache_df.empty:
+                    new_details_df[segment_id_field] = new_details_df[
+                        segment_id_field
+                    ].astype(segment_details_cache_df[segment_id_field].dtype)
+                segment_details_cache_df = pd.concat(
+                    [segment_details_cache_df, new_details_df], ignore_index=True
+                )
+                # Drop duplicates based on ID, keeping the latest fetch (last entry)
+                segment_details_cache_df = segment_details_cache_df.drop_duplicates(
+                    subset=[segment_id_field], keep="last"
+                )
+                try:
+                    # Ensure parent directory exists before saving
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    segment_details_cache_df.to_csv(cache_path, index=False)
+                    logger.info(f"Updated segment details cache CSV: {cache_path}")
+                except Exception as e:
+                    logger.error(f"Failed to save updated cache CSV: {e}")
+        else:
+            logger.info("All segment details found in cache.")
+
+        # --- Merge fetched/cached details with initial GeoDataFrame ---
+        # Drop existing detail columns from initial_gdf if they exist, to avoid conflicts
+        # Keep geometry from initial GDF
+        cols_to_drop_from_initial = [
+            col
+            for col in cache_cols
+            if col != segment_id_field and col in initial_gdf.columns
+        ]
+        initial_gdf_clean = initial_gdf.drop(
+            columns=cols_to_drop_from_initial, errors="ignore"
+        )
+
+        # Perform the merge
+        if not segment_details_cache_df.empty:
+            # Ensure ID types match before merge
+            initial_gdf_clean[segment_id_field] = initial_gdf_clean[
+                segment_id_field
+            ].astype(segment_details_cache_df[segment_id_field].dtype)
+
+            # Select only cache columns for merging to avoid duplicating others
+            details_to_merge = segment_details_cache_df[cache_cols]
+
+            merged_gdf = pd.merge(
+                initial_gdf_clean,
+                details_to_merge,
+                on=segment_id_field,
+                how="left",  # Keep all segments from initial file, add details where available
+            )
+        else:
+            logger.warning(
+                "Segment details cache is empty. Proceeding without detailed attributes."
+            )
+            merged_gdf = initial_gdf_clean  # Use initial data if cache is empty
+            # Add empty columns for required fields if they don't exist
+            for col in [athlete_count_field, star_count_field, created_at_field]:
+                if col not in merged_gdf.columns:
+                    merged_gdf[col] = np.nan
+
+        # Check for segments that didn't get details (check for NaN in a required field like created_at)
+        missing_details_count = merged_gdf[created_at_field].isna().sum()
+        if missing_details_count > 0:
+            logger.warning(
+                f"{missing_details_count} segments are missing details (created_at is null) after cache/API fetch."
+            )
+
+        # --- Decode Polylines and Create Geometry ---
+        # This step is now less critical if initial_gdf already has geometry,
+        # but we keep it as a fallback or if the 'map.polyline' is preferred.
+        logger.info("Decoding polylines (if necessary)...")
+        geometries = []
+        polyline_field = (
+            self.settings.input_data.segment_polyline_field
+        )  # Field containing encoded polyline
+
+        has_geometry_col = "geometry" in merged_gdf.columns
+
+        for index, row in merged_gdf.iterrows():
+            encoded_polyline = None
+            # Check if geometry already exists and is valid
+            if has_geometry_col and hasattr(row["geometry"], "geom_type"):
+                geometries.append(row["geometry"])
+                continue  # Skip decoding if valid geometry exists
+
+            # If no valid geometry, try decoding from 'map' or top-level field
+            if (
+                "map" in row
+                and isinstance(row["map"], dict)
+                and polyline_field in row["map"]
+            ):
+                encoded_polyline = row["map"][polyline_field]
+            elif polyline_field in row and pd.notna(row[polyline_field]):
+                encoded_polyline = row[polyline_field]
+
+            if encoded_polyline:
+                try:
+                    decoded_coords = polyline.decode(encoded_polyline)
+                    lon_lat_coords = [(lon, lat) for lat, lon in decoded_coords]
+                    if len(lon_lat_coords) >= 2:
+                        geometries.append(LineString(lon_lat_coords))
+                    else:
+                        geometries.append(None)
+                        logger.warning(
+                            f"Segment {row.get(segment_id_field, index)}: Decoded polyline has < 2 points."
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"Segment {row.get(segment_id_field, index)}: Failed to decode polyline '{encoded_polyline}': {e}"
+                    )
+                    geometries.append(None)
+            else:
+                logger.warning(
+                    f"Segment {row.get(segment_id_field, index)}: Missing polyline data and no existing geometry."
+                )
+                geometries.append(None)
+
+        # Create the final GeoDataFrame
+        # Drop original geometry column before assigning new one if it existed
+        cols_to_drop_final = ["map", polyline_field]
+        if has_geometry_col:
+            cols_to_drop_final.append("geometry")
+
+        self.gdf = gpd.GeoDataFrame(
+            merged_gdf.drop(columns=cols_to_drop_final, errors="ignore"),
+            geometry=geometries,
+        )
+        # Set CRS - Assume WGS84 if geometry was decoded, otherwise inherit from initial_gdf if possible
+        if not has_geometry_col or not initial_gdf.crs:
+            self.gdf.crs = "EPSG:4326"
+        else:
+            self.gdf.crs = (
+                initial_gdf.crs
+            )  # Keep original CRS if geometry wasn't decoded
+
+        # Drop rows with invalid/missing geometries or missing crucial details (like created_at)
+        original_len = len(self.gdf)
+        # Ensure created_at_field exists before dropping NA based on it
+        if created_at_field in self.gdf.columns:
+            self.gdf = self.gdf.dropna(subset=["geometry", created_at_field])
+        else:
+            logger.warning(
+                f"Column '{created_at_field}' not found, cannot drop NA based on it."
+            )
+            self.gdf = self.gdf.dropna(
+                subset=["geometry"]
+            )  # Drop only based on geometry
+
+        self.gdf = self.gdf[self.gdf.geometry.is_valid & ~self.gdf.geometry.is_empty]
+        if len(self.gdf) < original_len:
+            logger.warning(
+                f"Dropped {original_len - len(self.gdf)} segments due to invalid geometry or missing essential details."
+            )
+
+        if self.gdf.empty:
+            logger.error(
+                "No valid segments remaining after loading and detail fetching."
+            )
+            self.gdf = None  # Ensure gdf is None if empty
+            return  # Stop processing if no valid segments
+
+        self.gdf = self._reproject_if_needed(self.gdf)  # Reproject to target CRS
+
+        # --- Preprocessing Steps (Age and Metrics) ---
+        logger.info("Calculating segment age and popularity metrics...")
+
+        # Ensure necessary columns exist after merge/cleanup
+        required_cols_final = [created_at_field, athlete_count_field, star_count_field]
+        missing_cols_final = [
+            col for col in required_cols_final if col not in self.gdf.columns
+        ]
+        if missing_cols_final:
+            raise ValueError(
+                f"Missing required columns for metric calculation: {missing_cols_final}"
+            )
+
+        # Calculate Age
+        try:
+            # Convert 'created_at' to datetime (should be done by API/cache ideally, but ensure)
+            self.gdf[created_at_field] = pd.to_datetime(
+                self.gdf[created_at_field], errors="coerce", utc=True
+            )
+            # Drop rows where conversion failed (e.g., if cache had bad data)
+            original_len_date = len(self.gdf)
+            self.gdf = self.gdf.dropna(subset=[created_at_field])
+            if len(self.gdf) < original_len_date:
+                logger.warning(
+                    f"Dropped {original_len_date - len(self.gdf)} rows due to invalid date format in '{created_at_field}' after merge."
+                )
+
+            if self.gdf.empty:
+                logger.error("No valid segments remaining after date validation.")
+                self.gdf = None
+                return
+
+            now = pd.Timestamp.now(tz="UTC")  # Use timezone-aware timestamp
+
+            if self.settings.processing.segment_age_calculation_method == "days":
+                self.gdf["age_days"] = (now - self.gdf[created_at_field]).dt.days
+                age_col = "age_days"
+                self.gdf.loc[self.gdf[age_col] <= 0, age_col] = 1  # Min age 1 day
+            else:  # Default to years
+                self.gdf["age_years"] = (
+                    now - self.gdf[created_at_field]
+                ).dt.days / 365.25
+                age_col = "age_years"
+                self.gdf.loc[self.gdf[age_col] <= 0, age_col] = (
+                    1 / 365.25
+                )  # Min age ~1 day in years
+            logger.info(
+                f"Calculated segment age using method: '{self.settings.processing.segment_age_calculation_method}' (column: {age_col})"
+            )
+
+        except Exception as e:
+            logger.error(f"Error calculating segment age: {e}", exc_info=True)
+            # Don't raise here, allow proceeding without age-based metrics if needed
+            age_col = None
+            logger.warning("Proceeding without age column due to calculation error.")
+
+        # Calculate Popularity Metrics (using _per_age convention)
+        for metric_config_name in self.settings.processing.segment_popularity_metrics:
+            metric_col_name = metric_config_name  # Use the name directly from config
+            try:
+                # Ensure count fields are numeric
+                self.gdf[athlete_count_field] = pd.to_numeric(
+                    self.gdf[athlete_count_field], errors="coerce"
+                ).fillna(0)
+                self.gdf[star_count_field] = pd.to_numeric(
+                    self.gdf[star_count_field], errors="coerce"
+                ).fillna(0)
+
+                # Check if age calculation succeeded before calculating age-based metrics
+                is_age_metric = "per_age" in metric_col_name
+                if is_age_metric and age_col is None:
+                    logger.warning(
+                        f"Skipping age-based metric '{metric_col_name}' because age calculation failed."
+                    )
+                    self.gdf[metric_col_name] = np.nan  # Assign NaN if age is missing
+                    continue
+
+                if metric_col_name == "athletes_per_age":
+                    self.gdf[metric_col_name] = (
+                        self.gdf[athlete_count_field] / self.gdf[age_col]
+                    )
+                elif metric_col_name == "stars_per_age":
+                    self.gdf[metric_col_name] = (
+                        self.gdf[star_count_field] / self.gdf[age_col]
+                    )
+                elif metric_col_name == "stars_per_athlete":
+                    # Avoid division by zero
+                    self.gdf[metric_col_name] = np.where(
+                        self.gdf[athlete_count_field] > 0,
+                        self.gdf[star_count_field] / self.gdf[athlete_count_field],
+                        0,
+                    )
+                else:
+                    logger.warning(
+                        f"Unsupported popularity metric configured: {metric_col_name}"
+                    )
+                    continue  # Skip calculation for unsupported metrics
+
+                logger.info(f"Calculated popularity metric: {metric_col_name}")
+            except Exception as e:
+                logger.error(
+                    f"Error calculating metric '{metric_col_name}': {e}", exc_info=True
+                )
+                self.gdf[metric_col_name] = np.nan  # Assign NaN on error
+
+        # Fill any potential NaNs created during calculations
+        metric_cols_to_fill = [
+            m
+            for m in self.settings.processing.segment_popularity_metrics
+            if m in self.gdf.columns
+        ]
+        if metric_cols_to_fill:
+            self.gdf[metric_cols_to_fill] = self.gdf[metric_cols_to_fill].fillna(
+                0
+            )  # Fill NaNs with 0
+
+        logger.info("Strava segments loaded and preprocessed with API details.")
         self._save_intermediate_gdf(self.gdf, "prepared_segments_gpkg")
 
     @dask.delayed
     def _build_popularity_raster(self, metric: str):
-        """Builds a popularity raster for a single metric."""
-        logger.info(f"Building popularity raster for metric: {metric}")
+        """Builds a popularity raster for a single metric using geokrige."""
+        logger.info(f"Building popularity raster for metric: {metric} using geokrige")
         if self.gdf is None:
-            raise ValueError("Segments data not loaded.")
+            logger.warning("Segments GDF not loaded, attempting to load now...")
+            self.load_data()
+            if self.gdf is None:
+                raise ValueError("Segments data could not be loaded.")
 
-        # 1. Ensure metric column exists (needs preprocessing in load_data)
-        if metric not in self.gdf.columns:
-            raise ValueError(
-                f"Metric '{metric}' not found in segments GDF. Ensure preprocessing is done."
+        # 1. Ensure metric column exists and is valid
+        if metric not in self.gdf.columns or self.gdf[metric].isna().all():
+            logger.warning(
+                f"Metric column '{metric}' not found or contains only NaN. Skipping raster generation."
             )
-
-        # 2. Convert polylines to points
-        points_gdf = polyline_to_points(self.gdf)
-
-        # 3. Interpolate points to raster using WBT
-        input_shp_path = (
-            self.settings.paths.output_dir / f"temp_segment_points_{metric}.shp"
-        )
-        output_raster_path = self._get_output_path("segment_popularity_raster_prefix")
-        output_raster_path = (
-            output_raster_path.parent / f"{output_raster_path.stem}_{metric}.tif"
-        )
-
-        # Save points to temporary Shapefile for WBT
-        # WBT tools often prefer Shapefiles
-        save_vector_data(points_gdf, input_shp_path, driver="ESRI Shapefile")
-
-        try:
-            # TODO: Choose appropriate WBT interpolation tool (IDW, Kriging, etc.)
-            # Using IDW as an example
-            self.wbt.idw_interpolation(
-                i=str(input_shp_path),
-                field=metric,
-                output=str(output_raster_path),
-                weight=self.settings.processing.traffic_interpolation_power,  # Reuse traffic power?
-                radius=self.settings.processing.traffic_buffer_distance,  # Reuse traffic buffer?
-                cell_size=self.settings.processing.output_cell_size,
-                # base= Optional base raster path
-            )
-            logger.info(f"Generated popularity raster: {output_raster_path}")
-            self.output_paths[f"popularity_raster_{metric}"] = output_raster_path
-        except Exception as e:
-            logger.error(f"Error during WBT interpolation for {metric}: {e}")
-            # Optionally re-raise or return an error indicator
             return None
-        finally:
-            # Clean up temporary shapefile components
-            for suffix in [".shp", ".shx", ".dbf", ".prj", ".cpg"]:
-                temp_file = input_shp_path.with_suffix(suffix)
-                if temp_file.exists():
-                    temp_file.unlink()
+        if not pd.api.types.is_numeric_dtype(self.gdf[metric]):
+            logger.warning(
+                f"Metric column '{metric}' is not numeric. Attempting conversion."
+            )
+            self.gdf[metric] = pd.to_numeric(self.gdf[metric], errors="coerce").fillna(
+                0
+            )  # Fill NaNs introduced by coercion
 
-        return str(output_raster_path)  # Return path to the generated raster
+        # 2. Convert polylines to points and prepare data for Kriging
+        cols_to_keep = ["geometry", metric]
+        points_gdf = polyline_to_points(self.gdf[cols_to_keep].dropna(subset=[metric]))
+
+        if points_gdf.empty:
+            logger.warning(
+                f"No valid points generated for metric '{metric}'. Skipping interpolation."
+            )
+            return None
+
+        # Extract coordinates and values
+        x_coords = points_gdf.geometry.x.to_numpy()
+        y_coords = points_gdf.geometry.y.to_numpy()
+        values = points_gdf[metric].to_numpy()
+
+        # 3. Define output grid
+        cell_size = self.settings.processing.output_cell_size
+        minx, miny, maxx, maxy = points_gdf.total_bounds
+        # Adjust bounds slightly to ensure coverage and align with cell size?
+        # Or use bounds directly. Let's use bounds directly for now.
+        grid_x = np.arange(minx, maxx + cell_size, cell_size)
+        grid_y = np.arange(miny, maxy + cell_size, cell_size)
+        # Note: geokrige expects grid coordinates, not meshgrid
+        logger.info(
+            f"Creating output grid: X({len(grid_x)} steps), Y({len(grid_y)} steps)"
+        )
+
+        # 4. Perform Ordinary Kriging
+        try:
+            logger.info(f"Running Ordinary Kriging for metric '{metric}'...")
+            # Note: geokrige parameters might differ slightly from WBT's Kriging tool
+            # We use variogram_model, range, sill, nugget from config if available
+            # geokrige might estimate these if not provided or if set to None.
+            OK = OrdinaryKriging(
+                xi=x_coords,
+                yi=y_coords,
+                zi=values,
+                xk=grid_x,
+                yk=grid_y,
+                model=self.settings.processing.kriging_model,
+                # Pass other params only if they are not None in config?
+                # Check geokrige docs for default behavior if params are None
+                # For now, let's assume geokrige handles None or uses defaults
+                # range=self.settings.processing.kriging_range,
+                # sill=self.settings.processing.kriging_sill,
+                # nugget=self.settings.processing.kriging_nugget,
+            )
+            # Execute Kriging
+            OK.execute()
+            zvalues = OK.Z  # Get interpolated values
+            # Reshape to 2D grid - Note: geokrige output might be flattened, check order
+            # Assuming output order matches grid_y then grid_x (row-major)
+            grid_shape = (len(grid_y), len(grid_x))
+            interpolated_grid = zvalues.reshape(grid_shape)
+            logger.info(f"Kriging execution complete for metric '{metric}'.")
+
+        except Exception as e:
+            logger.error(
+                f"Error during geokrige execution for {metric}: {e}", exc_info=True
+            )
+            return None
+
+        # 5. Save raster using rasterio profile
+        try:
+            # Create rasterio profile
+            transform = from_origin(
+                minx, maxy, cell_size, cell_size
+            )  # Origin is top-left
+            profile = {
+                "driver": "GTiff",
+                "height": interpolated_grid.shape[0],
+                "width": interpolated_grid.shape[1],
+                "count": 1,
+                "dtype": interpolated_grid.dtype,
+                "crs": self.gdf.crs,  # Use the CRS of the reprojected GDF
+                "transform": transform,
+                "nodata": -9999,  # Or choose an appropriate nodata value
+            }
+
+            # Use the _save_raster helper, passing the metric name
+            self._save_raster(
+                interpolated_grid,
+                profile,
+                "segment_popularity_raster_prefix",
+                metric_name=metric,
+            )
+            # The actual path is stored in self.output_paths by _save_raster
+            output_path = self.output_paths.get(
+                f"segment_popularity_raster_prefix_{metric}"
+            )
+            return str(output_path) if output_path else None
+
+        except Exception as e:
+            logger.error(
+                f"Error saving Kriging raster for {metric}: {e}", exc_info=True
+            )
+            return None
 
     def build(self):
         """Builds popularity rasters for all configured metrics."""
         if self.gdf is None:
             self.load_data()
+        if self.gdf is None:  # Check again if load_data failed
+            logger.error("Cannot build Segments features: Data loading failed.")
+            return []
 
         tasks = []
-        for metric in self.settings.processing.segment_popularity_metrics:
+        # Ensure metrics exist in the dataframe after loading/preprocessing
+        available_metrics = [
+            m
+            for m in self.settings.processing.segment_popularity_metrics
+            if m in self.gdf.columns
+            and pd.api.types.is_numeric_dtype(self.gdf[m])
+            and not self.gdf[m].isna().all()
+        ]
+        skipped_metrics = [
+            m
+            for m in self.settings.processing.segment_popularity_metrics
+            if m not in available_metrics
+        ]
+        if skipped_metrics:
+            logger.warning(
+                f"Metrics configured but not found, not numeric, or all NaN in GDF: {skipped_metrics}. Skipping raster generation for these."
+            )
+
+        for metric in available_metrics:
             tasks.append(self._build_popularity_raster(metric))
+
+        if not tasks:
+            logger.warning("No valid metrics found to build popularity rasters.")
+            return []
 
         # Compute all raster tasks in parallel
         logger.info(f"Computing {len(tasks)} popularity raster tasks...")
         results = dask.compute(*tasks)
         logger.info("Popularity raster computation finished.")
-        # Filter out None results (errors during WBT)
+        # Filter out None results (errors during WBT/geokrige)
         successful_rasters = [r for r in results if r is not None]
         return successful_rasters  # Return list of paths to generated rasters
 
@@ -714,7 +1192,7 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
         "prepared_contours": elevation.output_paths.get("prepared_contours_gpkg"),
     }
 
-    # client.close() # Removed - manage client in workflow.py
+    # client.close() # Removed - manage client in workflow.py if used across tasks
 
     logger.info("--- Feature Building Task Completed ---")
     # Log generated paths for clarity
@@ -722,9 +1200,124 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     for key, value in results.items():
         if isinstance(value, Path) or isinstance(value, str) and Path(value).exists():
             logger.info(f"  - {key}: {value}")
-        elif isinstance(value, list) and value:
-            logger.info(f"  - {key}: {value}")  # Log list of paths
-        elif isinstance(value, dict) and value:
-            logger.info(f"  - {key}: {value}")  # Log dict of paths
+        elif isinstance(value, list) and all(
+            isinstance(item, (str, Path)) for item in value
+        ):
+            logger.info(f"  - {key}: {[str(p) for p in value]}")  # Log list of paths
+        elif isinstance(value, dict) and all(
+            isinstance(item, (str, Path)) for item in value.values()
+        ):
+            logger.info(
+                f"  - {key}: {{k: str(v) for k, v in value.items()}}"
+            )  # Log dict of paths
+        # Avoid logging entire objects/dataframes
+        elif isinstance(value, (pd.DataFrame, gpd.GeoDataFrame, FeatureBase)):
+            logger.info(f"  - {key}: <{type(value).__name__} object>")
 
     return results
+
+
+# --- Example Usage ---
+if __name__ == "__main__":
+    # Basic setup for standalone testing
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+    logger.info("--- Running build_features.py Standalone Test ---")
+
+    # Use settings loaded from config.py
+    settings = app_settings
+    # Ensure output directory exists for the test
+    settings.paths.output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Using Output Directory: {settings.paths.output_dir}")
+
+    wbt = None
+    try:
+        logger.info("Initializing WhiteboxTools for test...")
+        wbt = WhiteboxTools()
+        wbt.set_verbose_mode(settings.processing.wbt_verbose)
+        logger.info("WhiteboxTools initialized.")
+    except Exception as e:
+        logger.error(
+            f"Failed to initialize WhiteboxTools: {e}. Cannot proceed with WBT-dependent tests."
+        )
+        sys.exit(1)  # Exit if WBT fails, as it's needed
+
+    # Initialize Dask client for parallel processing
+    # Using LocalCluster for simple standalone execution
+    try:
+        cluster = LocalCluster()
+        client = Client(cluster)
+        logger.info(f"Dask client started: {client.dashboard_link}")
+    except Exception as e:
+        logger.error(f"Failed to start Dask client: {e}")
+        client = None  # Allow proceeding without Dask if it fails? Or exit?
+        # sys.exit(1) # Exit if Dask is critical
+
+    # --- Test Segments Feature ---
+    try:
+        logger.info("--- Testing Segments Feature ---")
+        segments_feature = Segments(settings, wbt)
+
+        logger.info("1. Testing Segments Load Data...")
+        segments_feature.load_data()
+        if segments_feature.gdf is not None:
+            logger.info(
+                f"Segments loaded successfully. Shape: {segments_feature.gdf.shape}"
+            )
+            print("Sample preprocessed segments data:")
+            print(segments_feature.gdf.head())
+            # Check if metric columns were added
+            expected_metrics = settings.processing.segment_popularity_metrics
+            actual_metrics = [
+                m for m in expected_metrics if m in segments_feature.gdf.columns
+            ]
+            logger.info(f"Expected metrics: {expected_metrics}")
+            logger.info(f"Actual metrics found in GDF: {actual_metrics}")
+        else:
+            logger.error("Segments GDF is None after loading.")
+
+        logger.info("2. Testing Segments Build (Popularity Rasters)...")
+        # Ensure data is loaded before building
+        if segments_feature.gdf is not None:
+            raster_paths = segments_feature.build()
+            logger.info(f"Segments build process completed.")
+            if raster_paths:
+                logger.info("Generated Popularity Rasters:")
+                for path in raster_paths:
+                    logger.info(f"  - {path}")
+            else:
+                logger.warning(
+                    "No popularity rasters were generated (check logs for errors)."
+                )
+        else:
+            logger.warning("Skipping Segments build test as data loading failed.")
+
+        logger.info("--- Segments Feature Test Completed ---")
+
+    except Exception as e:
+        logger.error(f"Error during Segments test: {e}", exc_info=True)
+
+    # --- Add tests for other features here as they are implemented ---
+    # try:
+    #     logger.info("--- Testing Heatmap Feature ---")
+    #     heatmap_feature = Heatmap(settings, wbt)
+    #     heatmap_feature.load_data()
+    #     heatmap_feature.build()
+    #     logger.info("--- Heatmap Feature Test Completed ---")
+    # except Exception as e:
+    #     logger.error(f"Error during Heatmap test: {e}", exc_info=True)
+
+    # ... etc. for Traffic, Roads, Elevation, CostDistance ...
+
+    # Clean up Dask client
+    if client:
+        try:
+            client.close()
+            cluster.close()
+            logger.info("Dask client and cluster closed.")
+        except Exception as e:
+            logger.warning(f"Error closing Dask client/cluster: {e}")
+
+    logger.info("--- Standalone Test Finished ---")
