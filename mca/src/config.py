@@ -170,8 +170,10 @@ class ProcessingConfig(BaseModel):
     output_crs_epsg: int = 25833  # UTM Zone 33N for Oslo
     output_cell_size: float = 10.0  # Meters, adjust as needed
     interpolation_method_points: str = "idw"  # e.g., idw, kriging, natural_neighbor
-    interpolation_method_polylines: str = "linear"  # Method for rasterizing lines
-
+    interpolation_method_polylines: str = (
+        "idw"
+        # Method for interpolating segment points: 'idw', 'nn', 'tin', 'kriging' (broke)
+    )
     # WhiteboxTools Settings
     wbt_verbose: bool = False
 

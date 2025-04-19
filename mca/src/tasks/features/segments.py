@@ -1,56 +1,29 @@
 import logging
-import sys  # Added for main block testing
 import time
 import numpy as np
 import pandas as pd
 import geopandas as gpd
 import dask
-from pathlib import Path
 from tqdm import tqdm
 import polyline
 from shapely.geometry import LineString
-from geokrige.methods import OrdinaryKriging  # Keep for the helper method
-import rasterio
+from geokrige.methods import OrdinaryKriging
 from rasterio.transform import from_origin
-from dask.distributed import Client, LocalCluster  # Added for main block testing
-from whitebox import WhiteboxTools  # Keep WBT import
+
+from src.tasks.features.feature_base import FeatureBase
+from src.strava.explore import get_segment_details
+from src.utils import (
+    load_vector_data,
+    polyline_to_points,
+    save_vector_data,
+)
 
 
-# Local imports (adjust relative paths as needed)
-try:
-    # Assumes execution from the main workflow script in src/
-    from .feature_base import FeatureBase
-    from src.config import (
-        AppConfig,
-        settings as app_settings,
-    )  # Import settings for main block
-    from src.strava.explore import get_segment_details
-    from src.utils import (
-        load_vector_data,
-        polyline_to_points,
-        save_vector_data,
-        save_raster_data,  # Make sure this is imported
-    )
-except ImportError:
-    # Fallback for potential execution from different relative paths
-    try:
-        from feature_base import FeatureBase
-
-        sys.path.append(str(Path(__file__).resolve().parents[2]))
-        from config import AppConfig, settings as app_settings
-        from strava.explore import get_segment_details
-        from utils import (
-            load_vector_data,
-            polyline_to_points,
-            save_vector_data,
-            save_raster_data,  # Make sure this is imported
-        )
-    except ImportError as e:
-        raise ImportError(
-            f"Could not resolve imports for segments.py. Ensure PYTHONPATH is set correctly or run from the project root. Original error: {e}"
-        )
-
-
+# Basic setup for standalone testing
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 
@@ -206,8 +179,14 @@ class Segments(FeatureBase):
         # --- Preprocessing Steps (Age and Metrics) ---
         logger.info("Calculating segment age and popularity metrics...")
         athlete_count_field = self.settings.input_data.segment_athlete_count_field
+        effort_count_field = self.settings.input_data.segment_effort_count_field
         star_count_field = self.settings.input_data.segment_star_count_field
-        required_cols_final = [created_at_field, athlete_count_field, star_count_field]
+        required_cols_final = [
+            created_at_field,
+            athlete_count_field,
+            effort_count_field,
+            star_count_field,
+        ]
         missing_cols_final = [
             col for col in required_cols_final if col not in self.gdf.columns
         ]
@@ -221,7 +200,7 @@ class Segments(FeatureBase):
         age_col = self._calculate_age(created_at_field)
         if age_col:
             self._calculate_popularity_metrics(
-                age_col, athlete_count_field, star_count_field
+                age_col, athlete_count_field, effort_count_field, star_count_field
             )
         else:
             logger.warning(
@@ -395,7 +374,7 @@ class Segments(FeatureBase):
             return None
 
     def _calculate_popularity_metrics(
-        self, age_col, athlete_count_field, star_count_field
+        self, age_col, athlete_count_field, effort_count_field, star_count_field
     ):
         """Calculates popularity metrics based on configuration."""
         logger.info("Calculating popularity metrics...")
@@ -418,6 +397,10 @@ class Segments(FeatureBase):
                 if metric_col_name == "athletes_per_age":
                     self.gdf[metric_col_name] = (
                         self.gdf[athlete_count_field] / self.gdf[age_col]
+                    )
+                elif metric_col_name == "efforts_per_age":
+                    self.gdf[metric_col_name] = (
+                        self.gdf[effort_count_field] / self.gdf[age_col]
                     )
                 elif metric_col_name == "stars_per_age":
                     self.gdf[metric_col_name] = (
@@ -460,12 +443,13 @@ class Segments(FeatureBase):
             return self._build_popularity_raster_kriging(metric)
         elif method == "idw":
             return self._build_popularity_raster_idw(metric)
-        # Add elif for other methods like 'natural_neighbor' if needed
-        # elif method == "natural_neighbor":
-        #     return self._build_popularity_raster_nn(metric)
+        elif method == "nn":
+            return self._build_popularity_raster_nn(metric)
+        elif method == "tin":
+            return self._build_popularity_raster_tin(metric)
         else:
             logger.error(
-                f"Unsupported interpolation method '{method}' configured for segments."
+                f"Unsupported interpolation method '{method}' configured for segments (supported: idw, nn, tin, kriging)."
             )
             return None
 
@@ -510,8 +494,9 @@ class Segments(FeatureBase):
                 i=str(input_shp_path),
                 field=sanitized_metric_field,
                 output=str(output_raster_path),
-                weight=self.settings.processing.traffic_interpolation_power,  # Consider specific config
-                radius=self.settings.processing.traffic_buffer_distance,  # Consider specific config
+                min_points=self.settings.processing.segment_popularity_idw_min_points,
+                weight=self.settings.processing.segment_popularity_idw_power,
+                radius=self.settings.processing.segment_popularity_idw_radius,
                 cell_size=self.settings.processing.output_cell_size,
             )
             logger.info(f"Generated IDW popularity raster: {output_raster_path}")
@@ -526,6 +511,150 @@ class Segments(FeatureBase):
         except Exception as e:
             logger.error(
                 f"Error during WBT IDW interpolation for {metric}: {e}", exc_info=True
+            )
+            return None
+        finally:
+            # Clean up temporary shapefile components
+            for suffix in [".shp", ".shx", ".dbf", ".prj", ".cpg"]:
+                temp_file = input_shp_path.with_suffix(suffix)
+                if temp_file.exists():
+                    try:
+                        temp_file.unlink()
+                    except OSError as unlink_e:
+                        logger.warning(
+                            f"Could not delete temp file {temp_file}: {unlink_e}"
+                        )
+
+    def _build_popularity_raster_nn(self, metric: str):
+        """Builds a popularity raster using WhiteboxTools Nearest Neighbour Gridding."""
+        logger.info(f"Interpolating {metric} using WBT Nearest Neighbour...")
+        if self.gdf is None:
+            raise ValueError("Segments GDF not loaded.")
+        if self.wbt is None:
+            raise ValueError("WhiteboxTools not initialized.")
+
+        if metric not in self.gdf.columns or self.gdf[metric].isna().all():
+            logger.warning(f"Metric '{metric}' not found or all NaN. Skipping NN.")
+            return None
+        if not pd.api.types.is_numeric_dtype(self.gdf[metric]):
+            logger.warning(f"Metric '{metric}' not numeric. Converting.")
+            self.gdf[metric] = pd.to_numeric(self.gdf[metric], errors="coerce").fillna(
+                0
+            )
+
+        points_gdf = polyline_to_points(
+            self.gdf[["geometry", metric]].dropna(subset=[metric])
+        )
+        if points_gdf.empty:
+            logger.warning(f"No valid points for {metric}. Skipping NN.")
+            return None
+
+        sanitized_metric_field = "".join(filter(str.isalnum, metric))[:10] or "metric"
+        points_gdf_shp = points_gdf.rename(columns={metric: sanitized_metric_field})
+        input_shp_path = (
+            self.settings.paths.output_dir / f"temp_segment_points_{metric}_nn.shp"
+        )
+        output_raster_path = self._get_output_path("segment_popularity_raster_prefix")
+        output_raster_path = (
+            output_raster_path.parent / f"{output_raster_path.stem}_{metric}_nn.tif"
+        )  # Add suffix to avoid overwriting
+
+        save_vector_data(points_gdf_shp, input_shp_path, driver="ESRI Shapefile")
+
+        try:
+            self.wbt.nearest_neighbour_gridding(
+                i=str(input_shp_path),
+                field=sanitized_metric_field,
+                output=str(output_raster_path),
+                cell_size=self.settings.processing.output_cell_size,
+                # Add other NN specific parameters from settings if needed
+            )
+            logger.info(f"Generated NN popularity raster: {output_raster_path}")
+            self._save_raster(
+                None,
+                None,
+                "segment_popularity_raster_prefix",
+                metric_name=f"{metric}_nn",
+            )
+            self.output_paths[f"segment_popularity_raster_prefix_{metric}_nn"] = (
+                output_raster_path
+            )
+            return str(output_raster_path)
+        except Exception as e:
+            logger.error(
+                f"Error during WBT NN interpolation for {metric}: {e}", exc_info=True
+            )
+            return None
+        finally:
+            # Clean up temporary shapefile components
+            for suffix in [".shp", ".shx", ".dbf", ".prj", ".cpg"]:
+                temp_file = input_shp_path.with_suffix(suffix)
+                if temp_file.exists():
+                    try:
+                        temp_file.unlink()
+                    except OSError as unlink_e:
+                        logger.warning(
+                            f"Could not delete temp file {temp_file}: {unlink_e}"
+                        )
+
+    def _build_popularity_raster_tin(self, metric: str):
+        """Builds a popularity raster using WhiteboxTools TIN Gridding."""
+        logger.info(f"Interpolating {metric} using WBT TIN Gridding...")
+        if self.gdf is None:
+            raise ValueError("Segments GDF not loaded.")
+        if self.wbt is None:
+            raise ValueError("WhiteboxTools not initialized.")
+
+        if metric not in self.gdf.columns or self.gdf[metric].isna().all():
+            logger.warning(f"Metric '{metric}' not found or all NaN. Skipping TIN.")
+            return None
+        if not pd.api.types.is_numeric_dtype(self.gdf[metric]):
+            logger.warning(f"Metric '{metric}' not numeric. Converting.")
+            self.gdf[metric] = pd.to_numeric(self.gdf[metric], errors="coerce").fillna(
+                0
+            )
+
+        points_gdf = polyline_to_points(
+            self.gdf[["geometry", metric]].dropna(subset=[metric])
+        )
+        if points_gdf.empty:
+            logger.warning(f"No valid points for {metric}. Skipping TIN.")
+            return None
+
+        sanitized_metric_field = "".join(filter(str.isalnum, metric))[:10] or "metric"
+        points_gdf_shp = points_gdf.rename(columns={metric: sanitized_metric_field})
+        input_shp_path = (
+            self.settings.paths.output_dir / f"temp_segment_points_{metric}_tin.shp"
+        )
+        output_raster_path = self._get_output_path("segment_popularity_raster_prefix")
+        output_raster_path = (
+            output_raster_path.parent / f"{output_raster_path.stem}_{metric}_tin.tif"
+        )  # Add suffix to avoid overwriting
+
+        save_vector_data(points_gdf_shp, input_shp_path, driver="ESRI Shapefile")
+
+        try:
+            self.wbt.tin_gridding(
+                i=str(input_shp_path),
+                field=sanitized_metric_field,
+                output=str(output_raster_path),
+                resolution=self.settings.processing.output_cell_size,
+                # Add other TIN specific parameters from settings if needed (e.g., interp_parameter)
+            )
+            logger.info(f"Generated TIN popularity raster: {output_raster_path}")
+            self._save_raster(
+                None,
+                None,
+                "segment_popularity_raster_prefix",
+                metric_name=f"{metric}_tin",
+            )
+            self.output_paths[f"segment_popularity_raster_prefix_{metric}_tin"] = (
+                output_raster_path
+            )
+            return str(output_raster_path)
+        except Exception as e:
+            logger.error(
+                f"Error during WBT TIN interpolation for {metric}: {e}", exc_info=True
             )
             return None
         finally:
@@ -710,46 +839,27 @@ class Segments(FeatureBase):
         return successful_rasters
 
 
-# --- Example Usage ---
 if __name__ == "__main__":
-    # Basic setup for standalone testing
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
+    # These import only needed for standalone testing
+    from dask.distributed import Client, LocalCluster
+    from whitebox import WhiteboxTools
+
+    from src.config import settings
+
     logger.info("--- Running segments.py Standalone Test ---")
 
-    # Use settings loaded from config.py
-    settings = app_settings
-    # Ensure output directory exists for the test
+    # --- Basic Setup ---
     settings.paths.output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Using Output Directory: {settings.paths.output_dir}")
 
-    wbt = None
-    try:
-        logger.info("Initializing WhiteboxTools for test...")
-        wbt = WhiteboxTools()
-        wbt.set_verbose_mode(settings.processing.wbt_verbose)
-        logger.info("WhiteboxTools initialized.")
-    except Exception as e:
-        logger.error(
-            f"Failed to initialize WhiteboxTools: {e}. WBT-dependent interpolation will fail."
-        )
-        # Don't exit, allow testing other parts or non-WBT interpolation
-
-    # Initialize Dask client for parallel processing
-    try:
-        cluster = LocalCluster()
-        client = Client(cluster)
-        logger.info(f"Dask client started: {client.dashboard_link}")
-    except Exception as e:
-        logger.error(f"Failed to start Dask client: {e}")
-        client = None
+    wbt = WhiteboxTools()
+    cluster = LocalCluster(n_workers=4, threads_per_worker=1)
+    client = Client(cluster)
+    logger.info(f"Dask client started: {client.dashboard_link}")
 
     # --- Test Segments Feature ---
     try:
         logger.info("--- Testing Segments Feature ---")
-        # Pass WBT instance (might be None)
         segments_feature = Segments(settings, wbt=wbt)
 
         logger.info("1. Testing Segments Load Data...")
@@ -760,7 +870,6 @@ if __name__ == "__main__":
             )
             print("Sample preprocessed segments data (first 5 rows):")
             print(segments_feature.gdf.head())
-            # Check if metric columns were added
             expected_metrics = settings.processing.segment_popularity_metrics
             actual_metrics = [
                 m for m in expected_metrics if m in segments_feature.gdf.columns
@@ -773,9 +882,8 @@ if __name__ == "__main__":
             logger.error("Segments GDF is None after loading.")
 
         logger.info("2. Testing Segments Build (Popularity Rasters)...")
-        # Ensure data is loaded before building
+
         if segments_feature.gdf is not None:
-            # Set interpolation method for testing (e.g., 'idw')
             settings.processing.interpolation_method_polylines = (
                 "idw"  # Explicitly set to IDW for testing
             )
