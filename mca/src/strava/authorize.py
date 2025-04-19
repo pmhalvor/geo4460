@@ -4,6 +4,7 @@ import time
 import json
 import os
 import requests
+import datetime
 
 from dotenv import load_dotenv
 
@@ -13,7 +14,12 @@ CLIENT_ID = os.getenv("STRAVA_CLIENT_ID")
 CLIENT_SECRET = os.getenv("STRAVA_CLIENT_SECRET")
 
 REDIRECT_URI = "http://localhost:3333/callback"
-TOKEN_PATH = "mca/data/token.json"
+
+
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+TOKEN_PATH = os.path.join(BASE_DIR, "data", "token.json")
+print(f"Token path: {TOKEN_PATH}")
 
 
 def get_authorization_url():
@@ -32,7 +38,6 @@ def get_authorization_url():
 def authorize():
     print("Starting flask server...")
 
-    # Get the absolute path to the flask app
     flask_app_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
         "src",
@@ -40,7 +45,6 @@ def authorize():
         "flask_app.py",
     )
 
-    # Make sure token directory exists
     token_dir = os.path.dirname(os.path.abspath(TOKEN_PATH))
     os.makedirs(token_dir, exist_ok=True)
 
@@ -96,6 +100,8 @@ def exchange_code_for_token(auth_code):
 
 
 def get_token():
+    print(f"Getting token from {TOKEN_PATH}...")
+
     if not os.path.exists(TOKEN_PATH):
         authorize()
 
@@ -127,14 +133,18 @@ def refresh_token(token_data):
 
     response = requests.post(token_url, data=payload)
     if response.status_code == 200:
-        token_data = response.json()
+        refresh_token_data = response.json()
 
-        # Save the new tokens to credentials or a secure location
-        with open("token.json", "w") as f:
-            json.dump(token_data, f, indent=4)
+        refresh_token_data["athlete"] = token_data["athlete"]
+        refresh_token_data["athlete"]["updated_at"] = datetime.datetime.now(
+            datetime.UTC
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        with open(TOKEN_PATH, "w") as f:
+            json.dump(refresh_token_data, f, indent=4)
 
         print("Access token refreshed successfully.")
-        return token_data
+        return refresh_token_data
     else:
         print(f"Failed to refresh token: {response.status_code} {response.text}")
         print("Trying to authorize again...")
