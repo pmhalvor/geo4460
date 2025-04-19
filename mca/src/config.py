@@ -168,7 +168,7 @@ class ProcessingConfig(BaseModel):
 
     # General Raster Settings
     output_crs_epsg: int = 25833  # UTM Zone 33N for Oslo
-    output_cell_size: float = 25.0  # Meters, adjust as needed
+    output_cell_size: float = 10.0  # Meters, adjust as needed
     interpolation_method_points: str = "idw"  # e.g., idw, kriging, natural_neighbor
     interpolation_method_polylines: str = "linear"  # Method for rasterizing lines
 
@@ -178,17 +178,21 @@ class ProcessingConfig(BaseModel):
     # Feature Generation Settings
     segment_popularity_metrics: List[str] = Field(
         default=[
+            "efforts_per_age",
             "athletes_per_age",
             "stars_per_age",
             "stars_per_athlete",
-        ],  # Default metrics use _per_age
+        ],
         description="Metrics to calculate for segment popularity.",
     )
+    segment_popularity_idw_min_points: int = 5
+    segment_popularity_idw_power: float = 3.0
+    segment_popularity_idw_radius: float = 500.0  # Meters
     segment_age_calculation_method: str = (
         "days"  # 'days', 'years' - determines denominator for _per_age metrics
     )
     strava_api_request_delay: float = (
-        2.0  # Seconds delay between API calls to avoid rate limits
+        0.25  # Seconds delay between API calls to avoid rate limits
     )
 
     traffic_buffer_distance: float = 500.0  # Meters, for buffering traffic stations
