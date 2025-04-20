@@ -140,6 +140,11 @@ class OutputFilesConfig(BaseModel):
     slope_raster: str = "slope.tif"
     cost_function_raster: str = "cost_function.tif"
 
+    # Feature Vectors (alternative to rasters)
+    segment_popularity_vector_prefix: str = (
+        "segment_popularity_vector"  # e.g., segment_popularity_vector_athletes_per_age.gpkg
+    )
+
     # Intermediate Files (optional, for debugging)
     buffered_traffic_stations_gpkg: str = "buffered_traffic_stations.gpkg"
     reclassified_roads_gpkg: str = "reclassified_roads.gpkg"
@@ -193,6 +198,7 @@ class ProcessingConfig(BaseModel):
     segment_popularity_idw_radius: float = 500.0  # Meters
     segment_popularity_nn_max_dist: float = 1000.0  # Meters
     segment_popularity_tin_max_triangle_edge_length: float = 100.0  # Meters
+    segment_popularity_buffer_distance: float = 5.0  # Meters, for vector output
     segment_age_calculation_method: str = (
         "days"  # 'days', 'years' - determines denominator for _per_age metrics
     )

@@ -8,7 +8,10 @@ from tqdm import tqdm
 import polyline
 from shapely.geometry import LineString
 from geokrige.methods import OrdinaryKriging
+import rasterio  # Added for reading/writing normalized raster
 from rasterio.transform import from_origin
+import matplotlib.cm as cm  # For color mapping
+import matplotlib.colors as mcolors  # For color mapping
 
 from src.tasks.features.feature_base import FeatureBase
 from src.strava.explore import get_segment_details
@@ -801,8 +804,107 @@ class Segments(FeatureBase):
         else:
             return None
 
+    @dask.delayed
+    def _build_popularity_vector(self, metric: str):
+        """Builds a popularity vector layer (buffered segments) for a single metric."""
+        logger.info(f"Building popularity vector for metric: {metric}")
+        if self.gdf is None:
+            raise ValueError("Segments GDF not loaded.")
+
+        if metric not in self.gdf.columns or self.gdf[metric].isna().all():
+            logger.warning(
+                f"Metric '{metric}' not found or all NaN. Skipping vector generation."
+            )
+            return None
+        if not pd.api.types.is_numeric_dtype(self.gdf[metric]):
+            logger.warning(
+                f"Metric '{metric}' not numeric. Converting for vector generation."
+            )
+            self.gdf[metric] = pd.to_numeric(self.gdf[metric], errors="coerce").fillna(
+                0
+            )
+
+        # Select relevant columns and drop rows with NaN metric values
+        metric_gdf = self.gdf[
+            [self.settings.input_data.segment_id_field, "geometry", metric]
+        ].copy()
+        metric_gdf = metric_gdf.dropna(subset=[metric])
+
+        if metric_gdf.empty:
+            logger.warning(
+                f"No valid segments for metric '{metric}' after dropping NaN. Skipping vector generation."
+            )
+            return None
+
+        # --- Normalize Metric (Min-Max 0-1) ---
+        min_val = metric_gdf[metric].min()
+        max_val = metric_gdf[metric].max()
+        norm_col = f"{metric}_norm"
+        if max_val == min_val:
+            metric_gdf[norm_col] = 0.0  # Assign 0 if all values are the same
+        else:
+            metric_gdf[norm_col] = (metric_gdf[metric] - min_val) / (max_val - min_val)
+        logger.info(
+            f"Normalized metric '{metric}' to '{norm_col}' (Min={min_val}, Max={max_val})"
+        )
+
+        # --- Apply Buffer ---
+        buffer_dist = self.settings.processing.segment_popularity_buffer_distance
+        if buffer_dist <= 0:
+            logger.warning(
+                f"Buffer distance ({buffer_dist}m) is zero or negative. Skipping buffer."
+            )
+        else:
+            try:
+                logger.info(f"Applying buffer of {buffer_dist}m to segments...")
+                # Ensure geometry column is active
+                metric_gdf = metric_gdf.set_geometry("geometry")
+                metric_gdf["geometry"] = metric_gdf.geometry.buffer(
+                    buffer_dist, cap_style=2, join_style=2
+                )  # Use flat cap, mitre join
+                logger.info("Buffer applied successfully.")
+            except Exception as e:
+                logger.error(
+                    f"Error applying buffer for metric {metric}: {e}", exc_info=True
+                )
+                return None  # Cannot proceed without buffer
+
+        # --- Add Color Column (Simple Grayscale Hex) ---
+        # Map normalized value (0-1) to grayscale hex (#000000 to #FFFFFF)
+        def grayscale_hex(norm_value):
+            if pd.isna(norm_value):
+                return "#808080"  # Gray for NaN
+            intensity = int(norm_value * 255)
+            return f"#{intensity:02x}{intensity:02x}{intensity:02x}"
+
+        metric_gdf["color"] = metric_gdf[norm_col].apply(grayscale_hex)
+        logger.info("Added grayscale 'color' column based on normalized metric.")
+
+        # --- Save Output ---
+        output_path_key = "segment_popularity_vector_prefix"
+        output_vector_path = self._get_output_path(
+            output_path_key
+        )  # Get base path from config name
+        output_vector_path = (
+            output_vector_path.parent / f"{output_vector_path.stem}_{metric}.gpkg"
+        )
+
+        try:
+            save_vector_data(metric_gdf, output_vector_path, driver="GPKG")
+            logger.info(f"Saved popularity vector: {output_vector_path}")
+            # Store the path using the base class helper logic (even though it's vector)
+            self.output_paths[f"{output_path_key}_{metric}"] = output_vector_path
+            return str(output_vector_path)
+        except Exception as e:
+            logger.error(
+                f"Error saving popularity vector for {metric}: {e}", exc_info=True
+            )
+            return None
+
     def build(self):
-        """Builds popularity rasters for all configured metrics."""
+        """Builds popularity vectors (buffered segments) for all configured metrics."""
+        # TODO: Add a config switch to choose between raster/vector output?
+        # For now, defaults to vector output.
         if self.gdf is None:
             self.load_data()
         if self.gdf is None:  # Check again if load_data failed
@@ -827,18 +929,25 @@ class Segments(FeatureBase):
                 f"Metrics configured but not found, not numeric, or all NaN in GDF: {skipped_metrics}. Skipping raster generation for these."
             )
 
+        # --- Choose Output Type (Vector for now) ---
+        build_vector = True  # Could be driven by config later
+        # build_raster = False
+
         for metric in available_metrics:
-            tasks.append(self._build_popularity_raster(metric))
+            if build_vector:
+                tasks.append(self._build_popularity_vector(metric))
+            # elif build_raster:
+            #     tasks.append(self._build_popularity_raster(metric)) # Keep raster code available
 
         if not tasks:
-            logger.warning("No valid metrics found to build popularity rasters.")
+            logger.warning("No valid metrics found to build popularity outputs.")
             return []
 
-        logger.info(f"Computing {len(tasks)} popularity raster tasks...")
+        logger.info(f"Computing {len(tasks)} popularity vector tasks...")
         results = dask.compute(*tasks)
-        logger.info("Popularity raster computation finished.")
-        successful_rasters = [r for r in results if r is not None]
-        return successful_rasters
+        logger.info("Popularity vector computation finished.")
+        successful_outputs = [r for r in results if r is not None]
+        return successful_outputs
 
 
 if __name__ == "__main__":
