@@ -836,17 +836,19 @@ class Segments(FeatureBase):
             )
             return None
 
-        # --- Normalize Metric (Min-Max 0-1) ---
-        min_val = metric_gdf[metric].min()
-        max_val = metric_gdf[metric].max()
+        # --- Log-Normalize Metric (Min-Max 0-1) ---
+        log_metric = np.log(metric_gdf[metric] + 1)  # Avoid log(0)
+        min_val = log_metric.min()
+        max_val = log_metric.max()
         norm_col = f"{metric}_norm"
         if max_val == min_val:
             metric_gdf[norm_col] = 0.0  # Assign 0 if all values are the same
         else:
-            metric_gdf[norm_col] = (metric_gdf[metric] - min_val) / (max_val - min_val)
+            metric_gdf[norm_col] = (log_metric - min_val) / (max_val - min_val)
         logger.info(
             f"Normalized metric '{metric}' to '{norm_col}' (Min={min_val}, Max={max_val})"
         )
+        logger.info(f"Norm col described: \n{metric_gdf[norm_col].describe()}")
 
         # --- Apply Buffer ---
         buffer_dist = self.settings.processing.segment_popularity_buffer_distance
@@ -879,6 +881,7 @@ class Segments(FeatureBase):
 
         metric_gdf["color"] = metric_gdf[norm_col].apply(grayscale_hex)
         logger.info("Added grayscale 'color' column based on normalized metric.")
+        logger.info(f"Sample color values: \n{metric_gdf['color'].head()}")
 
         # --- Save Output ---
         output_path_key = "segment_popularity_vector_prefix"
