@@ -40,3 +40,4 @@ downloads/
 .env
 *token*
 activities/
+activity_details/

@@ -292,6 +292,37 @@ def get_segment_details(segment):
         return None
 
 
+def get_activity_details(activity_id):
+    """
+    Get activity details using the Strava API, including splits.
+    https://developers.strava.com/docs/reference/#api-Activities-getActivityById
+    """
+    url = f"https://www.strava.com/api/v3/activities/{activity_id}"
+    token = get_token()
+
+    params = {
+        "access_token": token,
+        # 'include_all_efforts': False # Not needed for splits_metric
+    }
+
+    print(f"Fetching details for activity ID: {activity_id}")
+    response = requests.get(url, params=params)
+
+    if response.status_code == 200:
+        return response.json()
+    elif response.status_code == 429:
+        print(f"Rate limit exceeded for activity {activity_id}. Please wait.")
+        return 429  # Return status code to signal rate limit
+    elif response.status_code == 404:
+        print(f"Activity {activity_id} not found.")
+        return None
+    else:
+        print(
+            f"Failed to get activity details for {activity_id}: {response.status_code} {response.text}"
+        )
+        return None
+
+
 if __name__ == "__main__":
     # --- Example usage for fetching and storing activities ---
     # fetched_activities = get_athlete_activities()
