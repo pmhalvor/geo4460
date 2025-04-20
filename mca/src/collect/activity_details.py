@@ -6,21 +6,11 @@ Script to collect detailed information for previously fetched Strava activities.
 """
 
 import os
-import sys
 import json
 import time
 import re
 
-# Add the project root directory to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-try:
-    from src.strava.explore import get_activity_details, ACTIVITY_DATA_PATH, BASE_DIR
-except ImportError:
-    # Fallback if running directly from src directory
-    from strava.explore import get_activity_details, ACTIVITY_DATA_PATH, BASE_DIR
+from src.strava.explore import get_activity_details, ACTIVITY_DATA_PATH, BASE_DIR
 
 # Define path for detailed activity data
 ACTIVITY_DETAILS_PATH = os.path.join(BASE_DIR, "data", "activity_details")

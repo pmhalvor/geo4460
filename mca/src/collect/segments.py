@@ -1,8 +1,8 @@
 import numpy as np
 
-from strava.explore import explore_segments, store_segments
-from strava.locations import locations
-from traffic.stations import get_oslo_stations
+from src.strava.explore import explore_segments, store_segments
+from src.strava.locations import locations
+from src.traffic.stations import get_oslo_stations
 
 
 def calculate_km_to_degree_at_latitude(km, latitude):
