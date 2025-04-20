@@ -30,7 +30,7 @@ def get_authorization_url():
         f"&response_type=code"
         f"&redirect_uri={REDIRECT_URI}"
         f"&approval_prompt=force"
-        f"&scope=read"
+        f"&scope=read,activity:read_all"
     )
     return auth_url
 
@@ -155,7 +155,7 @@ def refresh_token(token_data):
 
 if __name__ == "__main__":
 
-    # authorize()
+    authorize()
 
     print("Getting token...")
     token = get_token()

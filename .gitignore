@@ -35,9 +35,8 @@ downloads/
 *.gdb
 *.gpkg
 
-
-
 # mca
 ## strava 
-*token*
 .env
+*token*
+activities/

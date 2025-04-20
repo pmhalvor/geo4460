@@ -3,6 +3,7 @@ import geopandas as gpd
 import os
 import pandas as pd
 import polyline
+import json  # Added import
 
 from shapely.geometry import LineString
 import folium
@@ -31,9 +32,13 @@ SEGMENT_METADATA_PATH = os.path.join(
     BASE_DIR, "data", "segments", "segments_oslo.geojson"
 )
 
+# Define path for activities
+ACTIVITY_DATA_PATH = os.path.join(BASE_DIR, "data", "activities")
+
 # Create directories if they don't exist
 os.makedirs(os.path.dirname(SEGMENT_SHAPEFILE_PATH), exist_ok=True)
 os.makedirs(os.path.dirname(SEGMENT_METADATA_PATH), exist_ok=True)
+os.makedirs(ACTIVITY_DATA_PATH, exist_ok=True)  # Added directory creation
 
 
 def explore_segments(
@@ -88,6 +93,86 @@ def explore_segments(
     else:
         print(f"Failed to explore segments: {response.status_code} {response.text}")
         return None
+
+
+def get_athlete_activities(per_page=100):
+    """
+    Fetch athlete activities from the Strava API.
+    https://developers.strava.com/docs/reference/#api-Activities-getLoggedInAthleteActivities
+    Fetches all activities page by page.
+    """
+    url = "https://www.strava.com/api/v3/athlete/activities"
+    token = get_token()
+    all_activities = []
+    page = 1
+
+    print("Fetching athlete activities...")
+
+    while True:
+        params = {
+            "access_token": token,
+            "page": page,
+            "per_page": per_page,
+        }
+
+        response = requests.get(url, params=params)
+
+        if response.status_code == 200:
+            activities = response.json()
+            if not activities:  # No more activities found
+                print("No more activities found.")
+                break
+
+            print(f"Fetched page {page} with {len(activities)} activities.")
+            all_activities.extend(activities)
+            page += 1
+
+            # Small check to prevent infinite loops in case API behaves unexpectedly
+            if len(activities) < per_page:
+                print("Last page reached.")
+                break
+        elif response.status_code == 429:
+            print("Rate limit exceeded. Please wait before making more requests.")
+            print(
+                f"NOTE! On rerun, make sure to start collection at page {page} to avoid duplicates."
+            )
+            # Consider adding a wait mechanism here if needed
+            break
+        else:
+            print(f"Failed to fetch activities: {response.status_code} {response.text}")
+            break  # Stop fetching on error
+
+    print(f"Total activities fetched: {len(all_activities)}")
+    return all_activities
+
+
+def store_activities(activities, activity_type_filter="Ride"):
+    """
+    Store fetched activities as individual JSON files, filtering by type.
+    """
+    if not activities:
+        print("No activities to store.")
+        return
+
+    stored_count = 0
+    for activity in activities:
+        if activity.get("type") == activity_type_filter:
+            activity_id = activity.get("id")
+            if not activity_id:
+                print("Skipping activity with no ID.")
+                continue
+
+            file_path = os.path.join(ACTIVITY_DATA_PATH, f"activity_{activity_id}.json")
+            try:
+                with open(file_path, "w") as f:
+                    json.dump(activity, f, indent=4)
+                stored_count += 1
+            except IOError as e:
+                print(f"Error writing file {file_path}: {e}")
+
+    print(
+        f"Stored {stored_count} activities of type '{activity_type_filter}' in {ACTIVITY_DATA_PATH}"
+    )
 
 
 def parse_segments_points(segments):
@@ -208,6 +293,13 @@ def get_segment_details(segment):
 
 
 if __name__ == "__main__":
+    # --- Example usage for fetching and storing activities ---
+    # fetched_activities = get_athlete_activities()
+    # if fetched_activities:
+    #    store_activities(fetched_activities, activity_type_filter="Ride")
+    # --------------------------------------------------------
+
+    # --- Original example usage for segments ---
     # from locations import locations
 
     # example = locations["frognerparken"]
