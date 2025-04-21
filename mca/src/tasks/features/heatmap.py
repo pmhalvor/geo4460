@@ -1,31 +1,26 @@
-import logging
-import json
-from pathlib import Path
+import csv
 import dask
-import pandas as pd
 import geopandas as gpd
-import polyline
-from shapely.geometry import LineString, Point
+import json
+import logging
 import numpy as np
-import tempfile  # For temporary shapefile cleanup
-from whitebox import WhiteboxTools  # For interpolation
-import rasterio  # Add rasterio back for CRS assignment
-import rasterio.crs  # Add rasterio.crs for CRS assignment
-import rasterio.sample  # For extracting raster values at points
-from sklearn.model_selection import train_test_split  # For train/test split
-from sklearn.metrics import mean_squared_error  # For RMSE calculation
-import csv  # For saving results
-from datetime import datetime  # For timestamping results
+import pandas as pd
+import polyline
+import rasterio
+import rasterio.crs
 
-# Local imports
+from datetime import datetime
+from pathlib import Path
+from shapely.geometry import LineString, Point
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
+from whitebox import WhiteboxTools
+
 from src.tasks.features.feature_base import FeatureBase
-
-# Import necessary utils
 from src.utils import (
     save_vector_data,
     polyline_to_points,
-    save_raster_data,
-)  # Keep all needed
+)
 
 
 logging.basicConfig(
@@ -47,9 +42,7 @@ class Heatmap(FeatureBase):
         average speed from splits_metric.
         """
         logger.info("Loading and processing Strava activity JSON data...")
-        activity_dir = (
-            self.settings.paths.activity_details_dir
-        )  # Assuming this path is in settings
+        activity_dir = self.settings.paths.activity_details_dir
         if not activity_dir.is_dir():
             logger.error(f"Activity details directory not found: {activity_dir}")
             self.gdf = None
@@ -57,23 +50,19 @@ class Heatmap(FeatureBase):
 
         json_files = list(activity_dir.glob("*.json"))
         if not json_files:
-            logger.warning(f"No JSON files found in {activity_dir}")
+            logger.error(f"No JSON files found in {activity_dir}")
             self.gdf = None
             return
 
         logger.info(f"Found {len(json_files)} activity JSON files.")
 
         all_split_segments = []
-        target_crs = (
-            self.settings.processing.output_crs_epsg
-        )  # Get target CRS for calculations
-        logger.info(
-            f"Target CRS read from settings: {target_crs}"
-        )  # Log the target CRS
+        target_crs = self.settings.processing.output_crs_epsg
+        logger.info(f"Target CRS read from settings: {target_crs}")
 
         for file_path in json_files:
             try:
-                logger.info(f"Processing file: {file_path}")
+                logger.debug(f"Processing file: {file_path}")
                 with open(file_path, "r") as f:
                     data = json.load(f)
 
@@ -81,12 +70,15 @@ class Heatmap(FeatureBase):
                 encoded_polyline = data.get("map", {}).get("polyline")
                 splits_metric = data.get("splits_metric")
 
-                if not activity_id or not encoded_polyline or not splits_metric:
-                    logger.warning(
-                        f"Skipping {file_path.name}: Missing ID, polyline, or splits_metric."
-                    )
-                    # continue
-                    break
+                if not activity_id:
+                    logger.warning(f"Skipping {file_path.name}: Missing ID.")
+                    continue
+                elif not encoded_polyline:
+                    logger.warning(f"Skipping {file_path.name}: Missing polyline.")
+                    continue
+                elif not splits_metric:
+                    logger.warning(f"Skipping {file_path.name}: Missing splits.")
+                    continue
 
                 # Decode polyline (lat, lon) -> (lon, lat) for Shapely
                 decoded_coords_latlon = polyline.decode(encoded_polyline)
@@ -116,6 +108,7 @@ class Heatmap(FeatureBase):
                 current_split_start_dist = 0.0
                 last_point_idx_used = -1  # Track index to ensure segments connect
 
+                # Iterate through splits, reconstructing full activity polyline
                 for split_data in splits_metric:
                     split_distance = split_data.get("distance")
                     avg_speed = split_data.get("average_speed")
@@ -160,7 +153,9 @@ class Heatmap(FeatureBase):
                             end_idx = start_idx + 1
                         else:
                             logger.warning(
-                                f"Activity {activity_id}, Split {split_index}: Cannot form line segment (start_idx={start_idx}, end_idx={end_idx}). Skipping."
+                                f"Activity {activity_id}, Split {split_index}: "
+                                f"Cannot form line segment (start_idx={start_idx}, end_idx={end_idx}). "
+                                "Skipping."
                             )
                             # We might lose the speed data for this tiny split.
                             # Update start distance for the next split, but don't update last_point_idx_used yet
@@ -186,7 +181,11 @@ class Heatmap(FeatureBase):
                         last_point_idx_used = end_idx  # Update the last point used
                     else:
                         logger.warning(
-                            f"Activity {activity_id}, Split {split_index}: Not enough points ({len(segment_coords)}) to form line segment between indices {start_idx}-{end_idx}. Dist range: {current_split_start_dist:.1f}-{split_target_end_dist:.1f}. Skipping."
+                            f"Activity {activity_id}, Split {split_index}: "
+                            f"Not enough points ({len(segment_coords)}) to form line segment between "
+                            f"indices {start_idx}-{end_idx}. "
+                            f"Dist range: {current_split_start_dist:.1f}-{split_target_end_dist:.1f}. "
+                            "Skipping."
                         )
 
                     # Update start distance for the next split
@@ -207,28 +206,18 @@ class Heatmap(FeatureBase):
             return
 
         # Create final GeoDataFrame
-        self.gdf = gpd.GeoDataFrame(all_split_segments, crs="EPSG:4326")
+        self.gdf = gpd.GeoDataFrame(all_split_segments, crs="EPSG:4326")  # inline crs?
         logger.info(
-            f"Created GeoDataFrame with {len(self.gdf)} activity split segments. Initial CRS: {self.gdf.crs}"
+            f"Created GeoDataFrame with {len(self.gdf)} activity split segments."
+            f"Initial CRS: {self.gdf.crs}"
         )
 
-        # Reproject to the target CRS specified in settings
         self.gdf = self._reproject_if_needed(self.gdf)  # Uses target_crs from settings
-        logger.info(
-            f"Reprojected final LineString GDF CRS: {self.gdf.crs}"
-        )  # Log CRS after reprojection
+        logger.info(f"Reprojected final LineString GDF CRS: {self.gdf.crs}")
 
         # Save intermediate file
         self._save_intermediate_gdf(self.gdf, "prepared_activity_splits_gpkg")
         logger.info("Activity split segments loaded and preprocessed.")
-
-    @dask.delayed
-    def _build_average_speed_raster(self):
-        """
-        Builds an average speed raster using IDW interpolation on points derived
-        from activity split segments.
-        """
-        # This method is defined later, removing the duplicate definition here.
 
     def _extract_raster_values(self, points_gdf, raster_path):
         """Extracts raster values at point locations."""
@@ -238,24 +227,11 @@ class Heatmap(FeatureBase):
         coords = [(p.x, p.y) for p in points_gdf.geometry]
         try:
             with rasterio.open(raster_path) as src:
-                # Ensure points CRS matches raster CRS (should already match)
-                if points_gdf.crs != src.crs:
-                    logger.warning(
-                        f"Points CRS ({points_gdf.crs}) differs from raster CRS ({src.crs}). Reprojecting points for sampling."
-                    )
-                    points_gdf = points_gdf.to_crs(src.crs)
-                    coords = [(p.x, p.y) for p in points_gdf.geometry]
-
-                sampled_values = [
-                    val[0] for val in src.sample(coords)
-                ]  # Sample returns list of arrays
+                sampled_values = [val[0] for val in src.sample(coords)]
                 points_gdf["predicted_speed"] = sampled_values
                 # Handle NoData: WBT might use a large negative number, rasterio might read as NaN or fill_value
-                nodata_val = src.nodatavals[
-                    0
-                ]  # Get the nodata value for the first band
+                nodata_val = src.nodatavals[0]
                 if nodata_val is not None:
-                    # Replace nodata values with NaN for easier filtering
                     points_gdf["predicted_speed"] = points_gdf[
                         "predicted_speed"
                     ].replace(nodata_val, np.nan)
@@ -318,7 +294,7 @@ class Heatmap(FeatureBase):
             logger.error("WhiteboxTools instance not available. Cannot perform IDW.")
             return None
 
-        # --- Convert Line Segments to Points ---
+        # --- Convert Line Segments to Points ---  # TODO refactor to own function
         logger.info("Converting activity split segments (LineStrings) to points...")
         # Ensure only relevant columns are passed to avoid issues if gdf has complex types
         cols_to_keep = ["average_speed", "geometry"]
@@ -330,13 +306,12 @@ class Heatmap(FeatureBase):
             return None
         logger.info(f"Generated {len(points_gdf)} total points with 'average_speed'.")
 
-        # --- Sample Points ---
-        # TODO: Consider making sample_fraction configurable if needed
-        sample_fraction = 0.5  # Sample for faster compute
+        # --- Sample Points ---  # TODO refactor to own function
+        sample_fraction = settings.processing.heatmap_sample_fraction
         logger.info(f"Sampling {sample_fraction*100:.0f}% of points for IDW input...")
         points_gdf_sampled = points_gdf.sample(
-            frac=sample_fraction, random_state=42
-        )  # Use random_state for reproducibility
+            frac=sample_fraction, random_state=settings.processing.heatmap_sample_seed
+        )
         if points_gdf_sampled.empty:
             logger.warning(
                 "Sampled points GeoDataFrame is empty. Skipping raster generation."
@@ -346,11 +321,11 @@ class Heatmap(FeatureBase):
             f"Using {len(points_gdf_sampled)} sampled points for interpolation."
         )
 
-        # --- Filter Points to Oslo Region ---
-        points_gdf_final = points_gdf_sampled  # Default to sampled if filtering fails
+        # --- Filter/Mask Points to Oslo Region ---  TODO refactor to own function
+        points_gdf_final = points_gdf_sampled
         try:
-            fgdb_path = Path("data/Basisdata_03_Oslo_25833_N50Kartdata_FGDB.gdb")
-            boundary_layer_name = "N50_Arealdekke_omrade"  # N50_Arealdekke_omrade or N50_Arealdekke_grense
+            fgdb_path = settings.paths.n50_gdb_path
+            boundary_layer_name = settings.input_data.n50_land_cover_layer
             logger.info(
                 f"Loading Oslo boundary layer '{boundary_layer_name}' from {fgdb_path}"
             )
@@ -360,16 +335,17 @@ class Heatmap(FeatureBase):
             )
 
             # Ensure boundary CRS matches points CRS (should be EPSG:25833 based on filename)
-            target_crs_epsg = self.settings.processing.output_crs_epsg
-            if oslo_boundary_gdf.crs.to_epsg() != target_crs_epsg:
+            target_crs = self.settings.processing.output_crs_epsg
+            if oslo_boundary_gdf.crs.to_epsg() != target_crs:
                 logger.warning(
-                    f"Reprojecting boundary from {oslo_boundary_gdf.crs} to EPSG:{target_crs_epsg}"
+                    f"Reprojecting boundary from {oslo_boundary_gdf.crs} to EPSG:{target_crs}"
                 )
-                oslo_boundary_gdf = oslo_boundary_gdf.to_crs(epsg=target_crs_epsg)
+                oslo_boundary_gdf = oslo_boundary_gdf.to_crs(epsg=target_crs)
 
             # Dissolve into a single boundary polygon
-            logger.info(f"{oslo_boundary_gdf.iloc[0]}")
-            oslo_boundary_single = oslo_boundary_gdf.dissolve().geometry.iloc[0]
+            oslo_boundary_single = oslo_boundary_gdf.dissolve(
+                method="coverage"
+            ).geometry.iloc[0]
             logger.info("Dissolved boundary layer into a single polygon.")
 
             # Filter sampled points
@@ -381,12 +357,7 @@ class Heatmap(FeatureBase):
                 f"Filtered points within Oslo boundary: {len(points_within_oslo)} points remaining (out of {len(points_gdf_sampled)})."
             )
 
-            if points_within_oslo.empty:
-                logger.error(
-                    "No sampled points fall within the Oslo boundary. Cannot proceed with interpolation."
-                )
-                return None
-            points_gdf_final = points_within_oslo  # Use the filtered points
+            points_gdf_final = points_within_oslo
 
         except Exception as e:
             logger.error(
@@ -394,16 +365,14 @@ class Heatmap(FeatureBase):
                 exc_info=True,
             )
             # points_gdf_final remains points_gdf_sampled as set initially
-        else:  # If filtering succeeded
-            points_gdf_final = points_within_oslo  # Use the filtered points
 
         if points_gdf_final.empty:
             logger.error(
-                "Final points GeoDataFrame (after potential filtering) is empty. Cannot proceed."
+                "Final points GeoDataFrame (after filtering) is empty. Cannot proceed."
             )
             return None
 
-        # --- Train/Test Split ---
+        # --- Train/Test Split ---  # TODO refactor to own function
         logger.info(
             "Splitting filtered points into training and testing sets (80/20)..."
         )
@@ -415,7 +384,7 @@ class Heatmap(FeatureBase):
             )
             train_gdf, test_gdf = train_test_split(
                 points_gdf_final_renamed,
-                test_size=0.2,
+                train_size=settings.processing.heatmap_train_test_split,
                 random_state=42,  # For reproducibility
             )
             logger.info(
@@ -430,20 +399,16 @@ class Heatmap(FeatureBase):
             logger.error(f"Error during train/test split: {e}", exc_info=True)
             return None
 
-        # --- Prepare TRAINING Data for WBT ---
-        # WBT often works best with Shapefiles
-        # Define a persistent path for the intermediate shapefile for debugging
-        # Place it within the main output directory structure
+        # --- Prepare Training Data for WBT ---  TODO refactor to own function
+        # TODO reimplement tempfile use here to clean this up after run
         temp_shp_dir = self.settings.paths.output_dir / "temp_heatmap_shapefile"
         temp_shp_dir.mkdir(parents=True, exist_ok=True)
         input_shp_path = temp_shp_dir / "activity_speed_points_sampled.shp"
         logger.info(f"Intermediate shapefile will be saved to: {input_shp_path}")
-        # WBT field names can be restrictive (e.g., length limits)
-        speed_field_shp = "avg_speed"  # Use the renamed column
-        # Use the TRAINING points GDF here
-        points_gdf_shp = train_gdf  # Use train_gdf for interpolation input
+        speed_field_shp = "avg_speed"  # shortened name for WBT
+        points_gdf_shp = train_gdf
 
-        # Ensure speed field is numeric (already checked in points_gdf_final, but good practice)
+        # Ensure speed field is numeric
         if not points_gdf_shp.empty and not pd.api.types.is_numeric_dtype(
             points_gdf_shp[speed_field_shp]
         ):
@@ -454,13 +419,13 @@ class Heatmap(FeatureBase):
                 points_gdf_shp[speed_field_shp], errors="coerce"
             ).fillna(0)
 
-        # Save the TRAINING points to the shapefile
+        # Save the training points to the shapefile
         save_vector_data(
             points_gdf_shp[[speed_field_shp, "geometry"]],
             input_shp_path,
             driver="ESRI Shapefile",
         )
-        logger.info(f"Saved intermediate TRAINING points shapefile: {input_shp_path}")
+        logger.info(f"Saved intermediate training points shapefile: {input_shp_path}")
 
         # --- Define Output Raster Path ---
         output_path_key = "average_speed_raster"  # Corresponds to config entry
@@ -484,7 +449,7 @@ class Heatmap(FeatureBase):
                 min_points=self.settings.processing.heatmap_idw_min_points,
             )
 
-            # --- Verification & RMSE Calculation ---
+            # --- Verification & RMSE Calculation ---  TODO refactor to own function
             if output_raster_path.is_file():
                 logger.info(
                     f"WBT IDW interpolation completed. Output file found: {output_raster_path}"
@@ -601,11 +566,8 @@ class Heatmap(FeatureBase):
                 return None
         except Exception as e:
             logger.error(f"Error during WBT IDW interpolation call: {e}", exc_info=True)
-            # Note: No cleanup of the intermediate shapefile here for debugging purposes.
-            # Consider adding manual cleanup steps or deleting the temp_shp_dir if runs succeed later.
             return None
-        # Note: Intermediate shapefile in temp_shp_dir is not automatically cleaned up
-        # to allow for debugging if WBT fails. Consider manual cleanup if needed.
+        # TODO readd tempfile cleanup here
 
     def build(self):
         """Builds the average speed raster from activity data."""
@@ -642,7 +604,7 @@ if __name__ == "__main__":
     logger.info("--- Running heatmap.py Standalone Test ---")
 
     if settings:
-        # --- Basic Setup ---
+        # --- Basic Setup ---  TODO refactor setup to another file to be reused later
         settings.paths.output_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Using Output Directory: {settings.paths.output_dir}")
 
@@ -666,12 +628,6 @@ if __name__ == "__main__":
                 logger.info(
                     f"Activity splits loaded successfully. Shape: {heatmap_feature.gdf.shape}"
                 )
-                print(
-                    "Sample preprocessed activity split data (first splits of 5 activites):"
-                )
-                print(heatmap_feature.gdf.sort_values(by="split").head())
-                print("\nGeoDataFrame Info:")
-                heatmap_feature.gdf.info()
             else:
                 logger.error("Heatmap GDF is None after loading.")
 
@@ -679,7 +635,7 @@ if __name__ == "__main__":
             if heatmap_feature.gdf is not None:
                 raster_paths = heatmap_feature.build()
                 logger.info("Heatmap build process completed.")
-                # --- Display Raster on Folium Map ---
+                # --- Display Raster on Folium Map ---  # TODO refactor to own function
                 if (
                     raster_paths
                 ):  # Check again in case the warning was logged but path exists

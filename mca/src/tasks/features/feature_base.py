@@ -75,6 +75,7 @@ class FeatureBase(ABC):
 
     def _reproject_if_needed(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         """Reprojects GeoDataFrame to target CRS if not already matching."""
+        # TODO maybe just always reproject to only that defined in settings if projection not provided?
         if gdf is None:
             return None
         target_crs = f"EPSG:{self.settings.processing.output_crs_epsg}"

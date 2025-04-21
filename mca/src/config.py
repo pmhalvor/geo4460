@@ -26,9 +26,6 @@ class PathsConfig(BaseModel):
         / "segments"
         / "segments_oslo.geojson"
     )
-    strava_activities_dir: Optional[DirectoryPath] = Field(
-        default=None, description="Directory containing Strava activity GPX/TCX files"
-    )  # TODO change based on gathered data
     traffic_bikes_csv: FilePath = Field(
         # Use BASE_DIR directly in lambda
         default_factory=lambda: BASE_DIR
@@ -41,9 +38,12 @@ class PathsConfig(BaseModel):
         default_factory=lambda: BASE_DIR / "data" / "traffic",
         description="Directory containing traffic station JSON files (e_road, f_road etc.)",
     )
-    n50_gdb_path: Optional[FilePath] = Field(
-        default=None, description="Path to the N50 Geodatabase (if used)"
-    )  # TODO should not be optional, but for now it is
+    n50_gdb_path: DirectoryPath = Field(
+        default_factory=lambda: BASE_DIR
+        / "data"
+        / "Basisdata_03_Oslo_25833_N50Kartdata_FGDB.gdb",
+        description="Path to the N50 Geodatabase",
+    )
     # Cache file for segment details fetched from API
     segment_details_cache_csv: Path = Field(
         default_factory=lambda: BASE_DIR
@@ -79,12 +79,7 @@ class PathsConfig(BaseModel):
             raise NotADirectoryError(
                 f"Traffic stations directory not found: {self.traffic_stations_dir}"
             )
-        # Optional validations
-        if self.strava_activities_dir and not self.strava_activities_dir.is_dir():
-            raise NotADirectoryError(
-                f"Strava activities directory not found: {self.strava_activities_dir}"
-            )
-        if self.n50_gdb_path and not self.n50_gdb_path.is_dir():  # GDB is a directory
+        if self.n50_gdb_path and not self.n50_gdb_path.is_dir():
             raise NotADirectoryError(
                 f"N50 Geodatabase directory not found: {self.n50_gdb_path}"
             )
@@ -93,7 +88,8 @@ class PathsConfig(BaseModel):
 class InputDataConfig(BaseModel):
     """Configuration for input data specifics, like layer names or field names."""
 
-    # N50 Layer Names
+    # N50
+    n50_land_cover_layer: str = "N50_Arealdekke_omrade"  # omrade or grense works
     n50_roads_layer: str = "veg_veglenke"  # TODO update w/ correct field name
     n50_bike_lanes_layer: str = "veg_sykkelveg"  # TODO update w/ correct field name
     n50_contour_layer: str = "terreng_N50_kontur"  # TODO update w/ correct field name
@@ -108,8 +104,8 @@ class InputDataConfig(BaseModel):
     segment_distance_field: str = "distance"
     segment_elevation_diff_field: str = "total_elevation_gain"  # Or similar
 
-    # Strava Activities Fields (if processing GPX/TCX)
-    activity_speed_field: str = "speed"  # Field name within parsed activity data
+    # Strava Activities Fields
+    activity_speed_field: str = "speed"
     activity_time_field: str = "time"
     activity_elevation_field: str = "elevation"
 
@@ -205,18 +201,14 @@ class ProcessingConfig(BaseModel):
     segment_popularity_nn_max_dist: float = 1000.0  # Meters
     segment_popularity_tin_max_triangle_edge_length: float = 100.0  # Meters
     segment_popularity_buffer_distance: float = 5.0  # Meters, for vector output
-    segment_age_calculation_method: str = (
-        "days"  # 'days', 'years' - determines denominator for _per_age metrics
-    )
-    strava_api_request_delay: float = (
-        0.05  # Seconds delay between API calls to avoid rate limits
-    )
+    segment_age_calculation_method: str = "days"  # 'days', 'years'
+    strava_api_request_delay: float = 0.05
 
     traffic_buffer_distance: float = 500.0  # Meters, for buffering traffic stations
     traffic_interpolation_power: float = 2.0  # For IDW interpolation
     road_buffer_distance: Optional[float] = Field(
         default=5.0, description="Optional buffer for road/lane matching (meters)"
-    )
+    )  # TODO remove if not used
     slope_units: str = "degrees"  # 'degrees' or 'percent'
 
     # Heatmap (Average Speed) IDW Settings
@@ -224,6 +216,11 @@ class ProcessingConfig(BaseModel):
     heatmap_idw_weight: float = 1.0  # Weight parameter for IDW
     heatmap_idw_radius: float = 500.0  # Search radius for IDW (meters)
     heatmap_idw_min_points: int = 150  # Minimum number of points required within radius
+    heatmap_sample_fraction: float = (
+        0.5  # Fraction of speed points to build raster from
+    )
+    heatmap_sample_seed: int = 42  # Random seed for reproducibility
+    heatmap_train_test_split: float = 0.8  # Fraction of data for training
 
     # Kriging specific parameters (if used for popularity)
     kriging_model: str = "spherical"  # e.g., spherical, exponential, gaussian
