@@ -663,24 +663,17 @@ class Heatmap(FeatureBase):
 
 
 if __name__ == "__main__":
-    # These imports are only needed for standalone testing
-    import folium
-    import rasterio
-    import rasterio.warp
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import matplotlib.colors as colors
-    import io
-    import base64
+    # Imports needed for standalone testing/execution
     from pathlib import Path
     from dask.distributed import Client, LocalCluster
     from src.config import settings  # Assuming settings is an instance of AppConfig
-    from whitebox import WhiteboxTools  # Ensure WBT is imported
+    from whitebox import WhiteboxTools
+    from src.utils import display_raster_on_folium_map # Import the new function
 
     logger.info("--- Running heatmap.py Standalone Test ---")
 
     if settings:
-        # --- Basic Setup ---  TODO refactor setup to another file to be reused later
+        # --- Basic Setup ---
         settings.paths.output_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Using Output Directory: {settings.paths.output_dir}")
 
@@ -711,159 +704,25 @@ if __name__ == "__main__":
             if heatmap_feature.gdf is not None:
                 raster_paths = heatmap_feature.build()
                 logger.info("Heatmap build process completed.")
-                # --- Display Raster on Folium Map ---  # TODO refactor to own function
-                if (
-                    raster_paths
-                ):  # Check again in case the warning was logged but path exists
+                # --- Display Raster on Folium Map using utility function ---
+                if raster_paths:
                     logger.info("Generated Average Speed Raster:")
-                    for path in raster_paths:
-                        logger.info(f"  - {path}")
-                    try:
-                        raster_path_str = raster_paths[0]
-                        raster_path = Path(raster_path_str)
-                        logger.info(f"Attempting to display raster: {raster_path}")
-
-                        with rasterio.open(raster_path) as src:
-                            bounds = src.bounds
-                            raster_crs = src.crs
-                            logger.info(
-                                f"Folium Display: Raster CRS read from file: {raster_crs}"
-                            )  # Log the CRS being used for transformation
-                            data = src.read(
-                                1, masked=True
-                            )  # Read first band as masked array
-
-                            # Verify the CRS before transforming
-                            if not raster_crs or not raster_crs.is_valid:
-                                logger.error(
-                                    f"Folium Display: Invalid or missing CRS ({raster_crs}) read from {raster_path}. Cannot transform bounds accurately."
-                                )
-                                # Skip map generation if CRS is bad
-                                rgba_data = None  # Ensure we skip overlay
-                            elif (
-                                raster_crs.to_epsg()
-                                != settings.processing.output_crs_epsg
-                            ):
-                                logger.warning(
-                                    f"Folium Display: CRS read from raster ({raster_crs}) does not match expected EPSG:{settings.processing.output_crs_epsg}. Transformation might be incorrect."
-                                )  # Use settings directly
-                                # Proceed with caution, but log warning
-
-                            # Transform bounds to WGS84 for Folium
-                            logger.info(
-                                f"Folium Display: Original bounds ({raster_crs}): {bounds}"
+                    for path_str in raster_paths:
+                        logger.info(f"  - {path_str}")
+                        try:
+                            # Define output path for the map
+                            map_output_path = settings.paths.output_dir / f"{Path(path_str).stem}_map.html"
+                            # Call the utility function
+                            display_raster_on_folium_map(
+                                raster_path_str=path_str,
+                                output_html_path_str=str(map_output_path),
+                                target_crs_epsg=settings.processing.output_crs_epsg,
+                                # Optional: Add other parameters like cmap_name, opacity if needed
                             )
-                            bounds_4326 = (
-                                None  # Initialize to handle potential transform error
-                            )
-                            try:
-                                bounds_4326 = rasterio.warp.transform_bounds(
-                                    raster_crs, "EPSG:4326", *bounds
-                                )  # left, bottom, right, top
-                                logger.info(
-                                    f"Folium Display: Transformed bounds (EPSG:4326): {bounds_4326}"
-                                )
-                            except Exception as warp_e:
-                                logger.error(
-                                    f"Folium Display: Error during bounds transformation: {warp_e}",
-                                    exc_info=True,
-                                )
-                                # rgba_data will be checked later, no need to set it here
-
-                            # Prepare data for image overlay: handle nodata, normalize, colormap
-                            # This block executes regardless of the transform outcome initially.
-                            cmap = plt.cm.viridis
-                            valid_data = (
-                                data.compressed()
-                            )  # Get only valid (unmasked) data
-                            rgba_data_calc = None  # Initialize calculated rgba data
-                            if valid_data.size > 0:
-                                norm = colors.Normalize(
-                                    vmin=np.percentile(valid_data, 5),
-                                    vmax=np.percentile(valid_data, 95),
-                                )
-                                rgba_data_calc = cmap(
-                                    norm(data), bytes=True
-                                )  # Apply colormap
-                                if data.mask.any():
-                                    rgba_data_calc[data.mask] = (
-                                        0,
-                                        0,
-                                        0,
-                                        0,
-                                    )  # Make masked pixels transparent
-                            else:
-                                logger.warning(
-                                    "Raster data contains no valid pixels. Cannot create image overlay."
-                                )
-                                # rgba_data_calc remains None
-
-                            # Check if BOTH transformation succeeded AND we have valid pixel data
-                            if rgba_data_calc is not None and bounds_4326 is not None:
-                                rgba_data = rgba_data_calc  # Use the calculated data
-                                map_bounds_folium = [
-                                    [
-                                        bounds_4326[1],
-                                        bounds_4326[0],
-                                    ],  # SouthWest (lat, lon)
-                                    [
-                                        bounds_4326[3],
-                                        bounds_4326[2],
-                                    ],  # NorthEast (lat, lon)
-                                ]
-                                center_lat = (bounds_4326[1] + bounds_4326[3]) / 2
-                                center_lon = (bounds_4326[0] + bounds_4326[2]) / 2
-
-                                # Save RGBA data to a PNG in memory
-                                buf = io.BytesIO()
-                                plt.imsave(
-                                    buf, rgba_data_calc, format="png"
-                                )  # Use calculated data
-                                buf.seek(0)
-                                png_base64 = base64.b64encode(buf.read()).decode(
-                                    "utf-8"
-                                )
-                                img_uri = f"data:image/png;base64,{png_base64}"
-
-                                # Create Folium map
-                                m = folium.Map(
-                                    location=[center_lat, center_lon],
-                                    zoom_start=12,
-                                    tiles="CartoDB positron",
-                                )
-
-                                # Add raster as ImageOverlay
-                                img_overlay = folium.raster_layers.ImageOverlay(
-                                    image=img_uri,
-                                    bounds=map_bounds_folium,
-                                    opacity=0.7,
-                                    name="Average Speed Heatmap",
-                                )
-                                img_overlay.add_to(m)
-                                folium.LayerControl().add_to(m)
-
-                                # Save map
-                                map_output_path = (
-                                    settings.paths.output_dir
-                                    / "average_speed_heatmap.html"
-                                )
-                                m.save(str(map_output_path))
-                                logger.info(
-                                    f"Folium map with raster overlay saved to: {map_output_path}"
-                                )
-                            else:
-                                logger.warning(
-                                    "Skipping Folium map generation due to lack of valid raster data."
-                                )
-
-                    except ImportError as imp_err:
-                        logger.error(
-                            f"Folium display skipped: Missing required library ({imp_err}). Install folium, matplotlib."
-                        )
-                    except Exception as map_e:
-                        logger.error(
-                            f"Error generating Folium map: {map_e}", exc_info=True
-                        )
+                        except Exception as display_e:
+                            logger.error(f"Error displaying raster {path_str} on map: {display_e}", exc_info=True)
+                else:
+                     logger.warning("No raster paths generated by build process. Skipping map display.")
 
             else:
                 logger.warning("Skipping Heatmap build test as data loading failed.")
