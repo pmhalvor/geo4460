@@ -8,6 +8,7 @@ import pandas as pd
 import polyline
 import rasterio
 import rasterio.crs
+import tempfile
 
 from datetime import datetime
 from pathlib import Path
@@ -268,6 +269,31 @@ class Heatmap(FeatureBase):
         rmse = np.sqrt(mean_squared_error(actual, predicted))
         logger.info(f"Calculated RMSE: {rmse:.4f}")
         return rmse
+
+    def _convert_segments_to_points(self, segments_gdf):
+        """Converts LineString segments GeoDataFrame to a Point GeoDataFrame."""
+        pass # TODO: Implement
+
+    def _sample_points(self, points_gdf):
+        """Samples a fraction of points from the GeoDataFrame."""
+        pass # TODO: Implement
+
+    def _filter_points_by_boundary(self, points_gdf):
+        """Filters points to keep only those within the configured boundary."""
+        pass # TODO: Implement
+
+    def _split_train_test(self, points_gdf):
+        """Splits the GeoDataFrame into training and testing sets."""
+        pass # TODO: Implement
+
+    def _prepare_wbt_input(self, train_gdf):
+        """Prepares and saves the training data to a temporary shapefile for WBT."""
+        pass # TODO: Implement
+
+    def _verify_and_calculate_rmse(self, output_raster_path, train_gdf, test_gdf, speed_field_shp):
+        """Verifies raster, assigns CRS, calculates RMSE, and saves results."""
+        pass # TODO: Implement
+
 
     @dask.delayed
     def _build_average_speed_raster(self):
