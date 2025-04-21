@@ -364,11 +364,70 @@ class Heatmap(FeatureBase):
 
     def _split_train_test(self, points_gdf):
         """Splits the GeoDataFrame into training and testing sets."""
-        pass # TODO: Implement
+        logger.info(
+            "Splitting filtered points into training and testing sets (80/20)..."
+        )
+        try:
+            # Rename target column for consistency before splitting
+            # Use settings from self.settings
+            points_gdf_renamed = points_gdf.rename(
+                columns={"average_speed": "avg_speed"}
+            )
+            train_gdf, test_gdf = train_test_split(
+                points_gdf_renamed,
+                train_size=self.settings.processing.heatmap_train_test_split,
+                random_state=42,  # For reproducibility
+            )
+            logger.info(
+                f"Train set size: {len(train_gdf)}, Test set size: {len(test_gdf)}"
+            )
+            if train_gdf.empty or test_gdf.empty:
+                logger.error(
+                    "Train or test set is empty after splitting. Cannot proceed."
+                )
+                return None, None # Indicate failure
+        except Exception as e:
+            logger.error(f"Error during train/test split: {e}", exc_info=True)
+            return None, None # Indicate failure
+
+        return train_gdf, test_gdf
 
     def _prepare_wbt_input(self, train_gdf):
         """Prepares and saves the training data to a temporary shapefile for WBT."""
-        pass # TODO: Implement
+        speed_field_shp = "avg_speed" # Use the renamed field
+
+        # Ensure speed field is numeric
+        if not train_gdf.empty and not pd.api.types.is_numeric_dtype(
+            train_gdf[speed_field_shp]
+        ):
+            logger.warning(
+                f"'{speed_field_shp}' in training data is not numeric. Converting."
+            )
+            # Use .loc to avoid SettingWithCopyWarning if train_gdf is a slice
+            train_gdf.loc[:, speed_field_shp] = pd.to_numeric(
+                train_gdf[speed_field_shp], errors="coerce"
+            ).fillna(0)
+
+        # Use tempfile for automatic cleanup
+        try:
+            # Create a temporary directory that will be cleaned up automatically
+            temp_dir = tempfile.TemporaryDirectory(prefix="heatmap_wbt_")
+            input_shp_path = Path(temp_dir.name) / "activity_speed_points_train.shp"
+            logger.info(f"Saving training points to temporary shapefile: {input_shp_path}")
+
+            # Save the training points to the shapefile
+            save_vector_data(
+                train_gdf[[speed_field_shp, "geometry"]],
+                input_shp_path,
+                driver="ESRI Shapefile",
+            )
+            logger.info(f"Saved temporary training points shapefile: {input_shp_path}")
+            # Return the path and the temporary directory object (so it stays alive)
+            return input_shp_path, temp_dir, speed_field_shp
+
+        except Exception as e:
+            logger.error(f"Error preparing WBT input shapefile: {e}", exc_info=True)
+            return None, None, None # Indicate failure
 
     def _verify_and_calculate_rmse(self, output_raster_path, train_gdf, test_gdf, speed_field_shp):
         """Verifies raster, assigns CRS, calculates RMSE, and saves results."""
@@ -410,60 +469,12 @@ class Heatmap(FeatureBase):
         points_gdf_filtered = self._filter_points_by_boundary(points_gdf_sampled)
         if points_gdf_filtered.empty: return None
 
-        # --- Train/Test Split ---  # TODO refactor to own function
-        logger.info(
-            "Splitting filtered points into training and testing sets (80/20)..."
-        )
-        try:
-            # Ensure the speed column exists and is suitable for stratification if desired,
-            # but simple random split is usually fine here. Rename target column first.
-            points_gdf_final_renamed = points_gdf_final.rename(
-                columns={"average_speed": "avg_speed"}
-            )
-            train_gdf, test_gdf = train_test_split(
-                points_gdf_final_renamed,
-                train_size=settings.processing.heatmap_train_test_split,
-                random_state=42,  # For reproducibility
-            )
-            logger.info(
-                f"Train set size: {len(train_gdf)}, Test set size: {len(test_gdf)}"
-            )
-            if train_gdf.empty or test_gdf.empty:
-                logger.error(
-                    "Train or test set is empty after splitting. Cannot proceed."
-                )
-                return None
-        except Exception as e:
-            logger.error(f"Error during train/test split: {e}", exc_info=True)
-            return None
+        train_gdf, test_gdf = self._split_train_test(points_gdf_filtered) # Corrected variable name
+        if train_gdf is None or test_gdf is None: return None # Check for split failure
 
-        # --- Prepare Training Data for WBT ---  TODO refactor to own function
-        # TODO reimplement tempfile use here to clean this up after run
-        temp_shp_dir = self.settings.paths.output_dir / "temp_heatmap_shapefile"
-        temp_shp_dir.mkdir(parents=True, exist_ok=True)
-        input_shp_path = temp_shp_dir / "activity_speed_points_sampled.shp"
-        logger.info(f"Intermediate shapefile will be saved to: {input_shp_path}")
-        speed_field_shp = "avg_speed"  # shortened name for WBT
-        points_gdf_shp = train_gdf
-
-        # Ensure speed field is numeric
-        if not points_gdf_shp.empty and not pd.api.types.is_numeric_dtype(
-            points_gdf_shp[speed_field_shp]
-        ):
-            logger.warning(
-                f"'{speed_field_shp}' in sampled data is not numeric. Converting."
-            )
-            points_gdf_shp[speed_field_shp] = pd.to_numeric(
-                points_gdf_shp[speed_field_shp], errors="coerce"
-            ).fillna(0)
-
-        # Save the training points to the shapefile
-        save_vector_data(
-            points_gdf_shp[[speed_field_shp, "geometry"]],
-            input_shp_path,
-            driver="ESRI Shapefile",
-        )
-        logger.info(f"Saved intermediate training points shapefile: {input_shp_path}")
+        # Prepare WBT input within a temporary directory context
+        input_shp_path, temp_dir_obj, speed_field_shp = self._prepare_wbt_input(train_gdf)
+        if input_shp_path is None: return None # Check for preparation failure
 
         # --- Define Output Raster Path ---
         output_path_key = "average_speed_raster"  # Corresponds to config entry
