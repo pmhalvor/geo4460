@@ -102,13 +102,7 @@ class Heatmap(FeatureBase):
                     [{"geometry": Point(p)} for p in coords_lonlat],
                     crs="EPSG:4326",  # Polylines are always WGS84
                 )
-                logger.debug(
-                    f"Activity {activity_id}: Initial points GDF CRS: {points_gdf.crs}"
-                )
                 points_gdf_proj = points_gdf.to_crs(target_crs)
-                logger.debug(
-                    f"Activity {activity_id}: Projected points GDF CRS: {points_gdf_proj.crs}"
-                )
 
                 # Calculate cumulative distance along the projected path
                 distances = points_gdf_proj.geometry.distance(
@@ -234,6 +228,7 @@ class Heatmap(FeatureBase):
         Builds an average speed raster using IDW interpolation on points derived
         from activity split segments.
         """
+        # This method is defined later, removing the duplicate definition here.
 
     def _extract_raster_values(self, points_gdf, raster_path):
         """Extracts raster values at point locations."""
@@ -336,6 +331,7 @@ class Heatmap(FeatureBase):
         logger.info(f"Generated {len(points_gdf)} total points with 'average_speed'.")
 
         # --- Sample Points ---
+        # TODO: Consider making sample_fraction configurable if needed
         sample_fraction = 0.5  # Sample for faster compute
         logger.info(f"Sampling {sample_fraction*100:.0f}% of points for IDW input...")
         points_gdf_sampled = points_gdf.sample(
@@ -349,29 +345,6 @@ class Heatmap(FeatureBase):
         logger.info(
             f"Using {len(points_gdf_sampled)} sampled points for interpolation."
         )
-
-        # --- Debugging: Inspect Sampled Points ---
-        logger.info(f"Sampled points GDF shape: {points_gdf_sampled.shape}")
-        logger.info(f"Sampled points GDF CRS: {points_gdf_sampled.crs}")
-        logger.info(
-            "Sampled points GDF head:\n" + points_gdf_sampled.head().to_string()
-        )
-        if (
-            "average_speed" in points_gdf_sampled.columns
-            and pd.api.types.is_numeric_dtype(points_gdf_sampled["average_speed"])
-        ):
-            logger.info(
-                f"Sampled points 'average_speed' stats: Min={points_gdf_sampled['average_speed'].min():.2f}, Max={points_gdf_sampled['average_speed'].max():.2f}, Mean={points_gdf_sampled['average_speed'].mean():.2f}"
-            )
-            if points_gdf_sampled["average_speed"].isnull().any():
-                logger.warning(
-                    f"Sampled points 'average_speed' contains {points_gdf_sampled['average_speed'].isnull().sum()} null values."
-                )
-        else:
-            logger.warning(
-                "Sampled points 'average_speed' column not found or not numeric."
-            )
-        # --- End Debugging ---
 
         # --- Filter Points to Oslo Region ---
         points_gdf_final = points_gdf_sampled  # Default to sampled if filtering fails
@@ -399,33 +372,8 @@ class Heatmap(FeatureBase):
             oslo_boundary_single = oslo_boundary_gdf.dissolve().geometry.iloc[0]
             logger.info("Dissolved boundary layer into a single polygon.")
 
-            # --- Debug: Save boundary and points before filtering ---
-            try:
-                debug_boundary_path = (
-                    self.settings.paths.output_dir / "debug_oslo_boundary.gpkg"
-                )
-                debug_points_path = (
-                    self.settings.paths.output_dir
-                    / "debug_sampled_points_before_filter.gpkg"
-                )
-                # Save boundary
-                gpd.GeoDataFrame(
-                    [1], geometry=[oslo_boundary_single], crs=f"EPSG:{target_crs_epsg}"
-                ).to_file(debug_boundary_path, driver="GPKG")
-                logger.info(
-                    f"Saved dissolved Oslo boundary for debugging: {debug_boundary_path}"
-                )
-                # Save points
-                points_gdf_sampled.to_file(debug_points_path, driver="GPKG")
-                logger.info(
-                    f"Saved sampled points before filtering for debugging: {debug_points_path}"
-                )
-            except Exception as dbg_e:
-                logger.warning(f"Could not save debug files: {dbg_e}")
-            # --- End Debug ---
-
             # Filter sampled points
-            logger.info("Attempting to filter points within the dissolved boundary...")
+            logger.info("Filtering points within the dissolved boundary...")
             points_within_oslo = points_gdf_sampled[
                 points_gdf_sampled.within(oslo_boundary_single)
             ]
@@ -495,37 +443,6 @@ class Heatmap(FeatureBase):
         # Use the TRAINING points GDF here
         points_gdf_shp = train_gdf  # Use train_gdf for interpolation input
 
-        # --- Add Detailed Logging Before Saving Shapefile ---
-        logger.info(
-            f"Preparing to save TRAINING points GDF to Shapefile: {input_shp_path}"
-        )
-        logger.info(f"  - Number of points: {len(points_gdf_shp)}")
-        logger.info(f"  - CRS: {points_gdf_shp.crs}")
-        if points_gdf_shp.empty:
-            logger.error(
-                "The final points GeoDataFrame to be saved is EMPTY. WBT will likely fail or produce an empty raster."
-            )
-            # Optionally, return None here to prevent WBT call with empty input
-            # return None
-        else:
-            logger.info(
-                "Final points GDF head before saving:\n"
-                + points_gdf_shp.head().to_string()
-            )
-            if speed_field_shp in points_gdf_shp.columns:
-                logger.info(
-                    f"Final points '{speed_field_shp}' stats: Min={points_gdf_shp[speed_field_shp].min():.2f}, Max={points_gdf_shp[speed_field_shp].max():.2f}, Mean={points_gdf_shp[speed_field_shp].mean():.2f}"
-                )
-                if points_gdf_shp[speed_field_shp].isnull().any():
-                    logger.warning(
-                        f"Final points '{speed_field_shp}' contains {points_gdf_shp[speed_field_shp].isnull().sum()} null values before saving."
-                    )
-            else:
-                logger.warning(
-                    f"Final points '{speed_field_shp}' column missing before saving."
-                )
-        # --- End Detailed Logging ---
-
         # Ensure speed field is numeric (already checked in points_gdf_final, but good practice)
         if not points_gdf_shp.empty and not pd.api.types.is_numeric_dtype(
             points_gdf_shp[speed_field_shp]
@@ -561,10 +478,10 @@ class Heatmap(FeatureBase):
                 i=str(input_shp_path),
                 field=speed_field_shp,
                 output=str(output_raster_path),
-                cell_size=10,  # User specified
-                weight=1,  # User specified
-                radius=500,  # User specified
-                min_points=150,  # User specified
+                cell_size=self.settings.processing.heatmap_idw_cell_size,
+                weight=self.settings.processing.heatmap_idw_weight,
+                radius=self.settings.processing.heatmap_idw_radius,
+                min_points=self.settings.processing.heatmap_idw_min_points,
             )
 
             # --- Verification & RMSE Calculation ---
@@ -627,12 +544,12 @@ class Heatmap(FeatureBase):
                             / "heatmap_rmse_results.csv"
                         )
                         file_exists = results_csv_path.is_file()
-                        # Get current WBT params directly from the call above
+                        # Get WBT params from settings
                         idw_params = {
-                            "cell_size": 15,
-                            "weight": 1.5,
-                            "radius": 500,
-                            "min_points": 15,
+                            "cell_size": self.settings.processing.heatmap_idw_cell_size,
+                            "weight": self.settings.processing.heatmap_idw_weight,
+                            "radius": self.settings.processing.heatmap_idw_radius,
+                            "min_points": self.settings.processing.heatmap_idw_min_points,
                         }
                         results_data = {
                             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -687,7 +604,8 @@ class Heatmap(FeatureBase):
             # Note: No cleanup of the intermediate shapefile here for debugging purposes.
             # Consider adding manual cleanup steps or deleting the temp_shp_dir if runs succeed later.
             return None
-        # Removed the finally block that cleaned up temp_dir
+        # Note: Intermediate shapefile in temp_shp_dir is not automatically cleaned up
+        # to allow for debugging if WBT fails. Consider manual cleanup if needed.
 
     def build(self):
         """Builds the average speed raster from activity data."""

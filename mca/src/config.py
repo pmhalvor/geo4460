@@ -219,6 +219,12 @@ class ProcessingConfig(BaseModel):
     )
     slope_units: str = "degrees"  # 'degrees' or 'percent'
 
+    # Heatmap (Average Speed) IDW Settings
+    heatmap_idw_cell_size: float = 10.0  # Cell size for the output raster (meters)
+    heatmap_idw_weight: float = 1.0  # Weight parameter for IDW
+    heatmap_idw_radius: float = 500.0  # Search radius for IDW (meters)
+    heatmap_idw_min_points: int = 150  # Minimum number of points required within radius
+
     # Kriging specific parameters (if used for popularity)
     kriging_model: str = "spherical"  # e.g., spherical, exponential, gaussian
     kriging_range: Optional[float] = None  # Search radius (if None, WBT might estimate)
