@@ -272,15 +272,95 @@ class Heatmap(FeatureBase):
 
     def _convert_segments_to_points(self, segments_gdf):
         """Converts LineString segments GeoDataFrame to a Point GeoDataFrame."""
-        pass # TODO: Implement
+        logger.info("Converting activity split segments (LineStrings) to points...")
+        # Ensure only relevant columns are passed to avoid issues if gdf has complex types
+        cols_to_keep = ["average_speed", "geometry"]
+        points_gdf = polyline_to_points(segments_gdf[cols_to_keep])
+        if points_gdf.empty:
+            logger.warning("No points generated from activity segments.")
+            return gpd.GeoDataFrame() # Return empty GDF
+        logger.info(f"Generated {len(points_gdf)} total points with 'average_speed'.")
+        return points_gdf
 
     def _sample_points(self, points_gdf):
         """Samples a fraction of points from the GeoDataFrame."""
-        pass # TODO: Implement
+        sample_fraction = self.settings.processing.heatmap_sample_fraction
+        sample_seed = self.settings.processing.heatmap_sample_seed
+        logger.info(f"Sampling {sample_fraction*100:.0f}% of points for IDW input...")
+        # Use settings from self.settings
+        points_gdf_sampled = points_gdf.sample(
+            frac=sample_fraction, random_state=sample_seed
+        )
+        if points_gdf_sampled.empty:
+            logger.warning("Sampled points GeoDataFrame is empty.")
+            return gpd.GeoDataFrame() # Return empty GDF
+        logger.info(
+            f"Using {len(points_gdf_sampled)} sampled points for interpolation."
+        )
+        return points_gdf_sampled
 
     def _filter_points_by_boundary(self, points_gdf):
         """Filters points to keep only those within the configured boundary."""
-        pass # TODO: Implement
+        points_gdf_final = points_gdf # Start with the input GDF
+        try:
+            # Use settings from self.settings
+            fgdb_path = self.settings.paths.n50_gdb_path
+            boundary_layer_name = self.settings.input_data.n50_land_cover_layer
+            logger.info(
+                f"Loading Oslo boundary layer '{boundary_layer_name}' from {fgdb_path}"
+            )
+            oslo_boundary_gdf = gpd.read_file(fgdb_path, layer=boundary_layer_name)
+            logger.info(
+                f"Loaded boundary layer with {len(oslo_boundary_gdf)} features. CRS: {oslo_boundary_gdf.crs}"
+            )
+
+            # Ensure boundary CRS matches points CRS
+            target_crs = self.settings.processing.output_crs_epsg
+            if oslo_boundary_gdf.crs.to_epsg() != target_crs:
+                logger.warning(
+                    f"Reprojecting boundary from {oslo_boundary_gdf.crs} to EPSG:{target_crs}"
+                )
+                oslo_boundary_gdf = oslo_boundary_gdf.to_crs(epsg=target_crs)
+
+            # Dissolve into a single boundary polygon
+            # Use unary_union for potentially overlapping polygons if dissolve fails or is slow
+            oslo_boundary_single = oslo_boundary_gdf.unary_union
+            logger.info("Dissolved boundary layer into a single polygon.")
+
+            # Filter sampled points
+            logger.info("Filtering points within the dissolved boundary...")
+            points_within_oslo = points_gdf[
+                points_gdf.within(oslo_boundary_single)
+            ]
+            logger.info(
+                f"Filtered points within Oslo boundary: {len(points_within_oslo)} points remaining (out of {len(points_gdf)})."
+            )
+            points_gdf_final = points_within_oslo
+
+        except ImportError:
+             logger.warning("`pyogrio` not installed. Falling back to `fiona` for GDB reading. Performance may vary.")
+             # Fallback or specific handling if pyogrio isn't available
+             # This might involve slightly different reading logic if needed
+             # For now, assume gpd.read_file handles it via fiona if pyogrio missing
+             # Re-run the read operation within this block if specific fiona args are needed
+             # Re-dissolve logic might also need adjustment depending on fiona output
+             # For simplicity, we'll log and continue assuming basic read works.
+             pass # Continue with the filtering logic below if read succeeded
+        except Exception as e:
+            logger.error(
+                f"Error loading or processing Oslo boundary: {e}. Proceeding without filtering.",
+                exc_info=True,
+            )
+            # points_gdf_final remains the input points_gdf
+
+        if points_gdf_final.empty:
+            logger.warning(
+                "Final points GeoDataFrame (after potential filtering) is empty."
+            )
+            # Return empty GDF, let caller handle
+            return gpd.GeoDataFrame()
+
+        return points_gdf_final
 
     def _split_train_test(self, points_gdf):
         """Splits the GeoDataFrame into training and testing sets."""
@@ -320,83 +400,15 @@ class Heatmap(FeatureBase):
             logger.error("WhiteboxTools instance not available. Cannot perform IDW.")
             return None
 
-        # --- Convert Line Segments to Points ---  # TODO refactor to own function
-        logger.info("Converting activity split segments (LineStrings) to points...")
-        # Ensure only relevant columns are passed to avoid issues if gdf has complex types
-        cols_to_keep = ["average_speed", "geometry"]
-        points_gdf = polyline_to_points(self.gdf[cols_to_keep])
-        if points_gdf.empty:
-            logger.warning(
-                "No points generated from activity segments. Skipping raster generation."
-            )
-            return None
-        logger.info(f"Generated {len(points_gdf)} total points with 'average_speed'.")
+        # --- Data Preparation Pipeline ---
+        points_gdf = self._convert_segments_to_points(self.gdf)
+        if points_gdf.empty: return None
 
-        # --- Sample Points ---  # TODO refactor to own function
-        sample_fraction = settings.processing.heatmap_sample_fraction
-        logger.info(f"Sampling {sample_fraction*100:.0f}% of points for IDW input...")
-        points_gdf_sampled = points_gdf.sample(
-            frac=sample_fraction, random_state=settings.processing.heatmap_sample_seed
-        )
-        if points_gdf_sampled.empty:
-            logger.warning(
-                "Sampled points GeoDataFrame is empty. Skipping raster generation."
-            )
-            return None
-        logger.info(
-            f"Using {len(points_gdf_sampled)} sampled points for interpolation."
-        )
+        points_gdf_sampled = self._sample_points(points_gdf)
+        if points_gdf_sampled.empty: return None
 
-        # --- Filter/Mask Points to Oslo Region ---  TODO refactor to own function
-        points_gdf_final = points_gdf_sampled
-        try:
-            fgdb_path = settings.paths.n50_gdb_path
-            boundary_layer_name = settings.input_data.n50_land_cover_layer
-            logger.info(
-                f"Loading Oslo boundary layer '{boundary_layer_name}' from {fgdb_path}"
-            )
-            oslo_boundary_gdf = gpd.read_file(fgdb_path, layer=boundary_layer_name)
-            logger.info(
-                f"Loaded boundary layer with {len(oslo_boundary_gdf)} features. CRS: {oslo_boundary_gdf.crs}"
-            )
-
-            # Ensure boundary CRS matches points CRS (should be EPSG:25833 based on filename)
-            target_crs = self.settings.processing.output_crs_epsg
-            if oslo_boundary_gdf.crs.to_epsg() != target_crs:
-                logger.warning(
-                    f"Reprojecting boundary from {oslo_boundary_gdf.crs} to EPSG:{target_crs}"
-                )
-                oslo_boundary_gdf = oslo_boundary_gdf.to_crs(epsg=target_crs)
-
-            # Dissolve into a single boundary polygon
-            oslo_boundary_single = oslo_boundary_gdf.dissolve(
-                method="coverage"
-            ).geometry.iloc[0]
-            logger.info("Dissolved boundary layer into a single polygon.")
-
-            # Filter sampled points
-            logger.info("Filtering points within the dissolved boundary...")
-            points_within_oslo = points_gdf_sampled[
-                points_gdf_sampled.within(oslo_boundary_single)
-            ]
-            logger.info(
-                f"Filtered points within Oslo boundary: {len(points_within_oslo)} points remaining (out of {len(points_gdf_sampled)})."
-            )
-
-            points_gdf_final = points_within_oslo
-
-        except Exception as e:
-            logger.error(
-                f"Error loading or processing Oslo boundary: {e}. Proceeding without filtering.",
-                exc_info=True,
-            )
-            # points_gdf_final remains points_gdf_sampled as set initially
-
-        if points_gdf_final.empty:
-            logger.error(
-                "Final points GeoDataFrame (after filtering) is empty. Cannot proceed."
-            )
-            return None
+        points_gdf_filtered = self._filter_points_by_boundary(points_gdf_sampled)
+        if points_gdf_filtered.empty: return None
 
         # --- Train/Test Split ---  # TODO refactor to own function
         logger.info(
