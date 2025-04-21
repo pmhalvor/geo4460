@@ -431,7 +431,118 @@ class Heatmap(FeatureBase):
 
     def _verify_and_calculate_rmse(self, output_raster_path, train_gdf, test_gdf, speed_field_shp):
         """Verifies raster, assigns CRS, calculates RMSE, and saves results."""
-        pass # TODO: Implement
+        if not output_raster_path.is_file():
+            logger.error(
+                f"WBT IDW interpolation command completed, but output file was not created: {output_raster_path}"
+            )
+            return None, None # Indicate failure (no RMSE values)
+
+        logger.info(
+            f"WBT IDW interpolation completed. Output file found: {output_raster_path}"
+        )
+        # --- Assign Correct CRS ---
+        try:
+            target_crs_epsg = self.settings.processing.output_crs_epsg
+            with rasterio.open(output_raster_path, "r+") as ds:
+                if (
+                    ds.crs is None
+                    or not ds.crs.is_valid
+                    or ds.crs.to_epsg() != target_crs_epsg
+                ):
+                    logger.warning(
+                        f"Output raster CRS is missing or incorrect ({ds.crs}). Assigning EPSG:{target_crs_epsg}."
+                    )
+                    ds.crs = rasterio.crs.CRS.from_epsg(target_crs_epsg)
+                else:
+                    logger.info(
+                        f"Output raster CRS already correctly set to {ds.crs}."
+                    )
+            logger.info(
+                f"Successfully assigned CRS EPSG:{target_crs_epsg} to {output_raster_path}"
+            )
+        except Exception as crs_e:
+            logger.error(
+                f"Error assigning CRS to {output_raster_path}: {crs_e}",
+                exc_info=True,
+            )
+            return None, None # Indicate failure
+
+        # --- Calculate RMSE ---
+        logger.info("--- Calculating RMSE ---")
+        train_rmse, test_rmse = np.nan, np.nan # Initialize
+        try:
+            # Extract predicted values for training points
+            train_gdf_pred = self._extract_raster_values(
+                train_gdf.copy(), output_raster_path
+            )
+            train_rmse = self._calculate_rmse(
+                train_gdf_pred,
+                actual_col=speed_field_shp,
+                predicted_col="predicted_speed",
+            )
+            logger.info(f"Train RMSE: {train_rmse:.4f}")
+
+            # Extract predicted values for testing points
+            test_gdf_pred = self._extract_raster_values(
+                test_gdf.copy(), output_raster_path
+            )
+            test_rmse = self._calculate_rmse(
+                test_gdf_pred,
+                actual_col=speed_field_shp,
+                predicted_col="predicted_speed",
+            )
+            logger.info(f"Test RMSE: {test_rmse:.4f}")
+            logger.info("--- RMSE Calculation Complete ---")
+        except Exception as rmse_e:
+             logger.error(f"Error during RMSE calculation: {rmse_e}", exc_info=True)
+             # Continue to save results, RMSE might be NaN
+
+        # --- Save RMSE Results ---
+        try:
+            results_csv_path = (
+                self.settings.paths.output_dir.parent
+                / "heatmap_rmse_results.csv" # Save one level up from run-specific dir
+            )
+            file_exists = results_csv_path.is_file()
+            # Get WBT params from settings
+            idw_params = {
+                "cell_size": self.settings.processing.heatmap_idw_cell_size,
+                "weight": self.settings.processing.heatmap_idw_weight,
+                "radius": self.settings.processing.heatmap_idw_radius,
+                "min_points": self.settings.processing.heatmap_idw_min_points,
+            }
+            results_data = {
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "run_output_dir": self.settings.paths.output_dir.name,
+                "train_rmse": (
+                    f"{train_rmse:.4f}"
+                    if not np.isnan(train_rmse)
+                    else "NaN"
+                ),
+                "test_rmse": (
+                    f"{test_rmse:.4f}" if not np.isnan(test_rmse) else "NaN"
+                ),
+                "cell_size": idw_params["cell_size"],
+                "weight": idw_params["weight"],
+                "radius": idw_params["radius"],
+                "min_points": idw_params["min_points"],
+                "train_points": len(train_gdf),
+                "test_points": len(test_gdf),
+            }
+            with open(results_csv_path, "a", newline="") as csvfile:
+                fieldnames = results_data.keys()
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                if not file_exists:
+                    writer.writeheader()  # Write header only if file is new
+                writer.writerow(results_data)
+            logger.info(f"RMSE results appended to: {results_csv_path}")
+        except Exception as csv_e:
+            logger.error(
+                f"Error saving RMSE results to CSV: {csv_e}", exc_info=True
+            )
+            # Don't fail the whole process, just log the error
+
+        return train_rmse, test_rmse # Return calculated RMSE values
 
 
     @dask.delayed
@@ -477,19 +588,18 @@ class Heatmap(FeatureBase):
         if input_shp_path is None: return None # Check for preparation failure
 
         # --- Define Output Raster Path ---
-        output_path_key = "average_speed_raster"  # Corresponds to config entry
+        output_path_key = "average_speed_raster"
         output_raster_path = self._get_output_path(output_path_key)
-        output_raster_path.parent.mkdir(
-            parents=True, exist_ok=True
-        )  # Ensure dir exists
+        output_raster_path.parent.mkdir(parents=True, exist_ok=True)
 
         # --- Run WBT IDW Interpolation ---
+        idw_success = False
         try:
             logger.info(
                 f"Running WBT IDW interpolation for field '{speed_field_shp}'..."
             )
             self.wbt.idw_interpolation(
-                i=str(input_shp_path),
+                i=str(input_shp_path), # Use path from temp dir
                 field=speed_field_shp,
                 output=str(output_raster_path),
                 cell_size=self.settings.processing.heatmap_idw_cell_size,
@@ -497,126 +607,43 @@ class Heatmap(FeatureBase):
                 radius=self.settings.processing.heatmap_idw_radius,
                 min_points=self.settings.processing.heatmap_idw_min_points,
             )
+            idw_success = True # Assume success if no exception
 
-            # --- Verification & RMSE Calculation ---  TODO refactor to own function
-            if output_raster_path.is_file():
-                logger.info(
-                    f"WBT IDW interpolation completed. Output file found: {output_raster_path}"
-                )
-                # --- Assign Correct CRS ---
-                try:
-                    target_crs_epsg = (
-                        self.settings.processing.output_crs_epsg
-                    )  # Get the known target CRS
-                    with rasterio.open(output_raster_path, "r+") as ds:
-                        if (
-                            ds.crs is None
-                            or not ds.crs.is_valid
-                            or ds.crs.to_epsg() != target_crs_epsg
-                        ):
-                            logger.warning(
-                                f"Output raster CRS is missing or incorrect ({ds.crs}). Assigning EPSG:{target_crs_epsg}."
-                            )
-                            ds.crs = rasterio.crs.CRS.from_epsg(target_crs_epsg)
-                        else:
-                            logger.info(
-                                f"Output raster CRS already correctly set to {ds.crs}."
-                            )
-                    logger.info(
-                        f"Successfully assigned CRS EPSG:{target_crs_epsg} to {output_raster_path}"
-                    )
-
-                    # --- Calculate RMSE ---
-                    logger.info("--- Calculating RMSE ---")
-                    # Extract predicted values for training points
-                    train_gdf_pred = self._extract_raster_values(
-                        train_gdf.copy(), output_raster_path
-                    )  # Use copy to avoid SettingWithCopyWarning
-                    train_rmse = self._calculate_rmse(
-                        train_gdf_pred,
-                        actual_col=speed_field_shp,
-                        predicted_col="predicted_speed",
-                    )
-                    logger.info(f"Train RMSE: {train_rmse:.4f}")
-
-                    # Extract predicted values for testing points
-                    test_gdf_pred = self._extract_raster_values(
-                        test_gdf.copy(), output_raster_path
-                    )
-                    test_rmse = self._calculate_rmse(
-                        test_gdf_pred,
-                        actual_col=speed_field_shp,
-                        predicted_col="predicted_speed",
-                    )
-                    logger.info(f"Test RMSE: {test_rmse:.4f}")
-                    logger.info("--- RMSE Calculation Complete ---")
-
-                    # --- Save RMSE Results ---
-                    try:
-                        results_csv_path = (
-                            self.settings.paths.output_dir.parent
-                            / "heatmap_rmse_results.csv"
-                        )
-                        file_exists = results_csv_path.is_file()
-                        # Get WBT params from settings
-                        idw_params = {
-                            "cell_size": self.settings.processing.heatmap_idw_cell_size,
-                            "weight": self.settings.processing.heatmap_idw_weight,
-                            "radius": self.settings.processing.heatmap_idw_radius,
-                            "min_points": self.settings.processing.heatmap_idw_min_points,
-                        }
-                        results_data = {
-                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "run_output_dir": self.settings.paths.output_dir.name,
-                            "train_rmse": (
-                                f"{train_rmse:.4f}"
-                                if not np.isnan(train_rmse)
-                                else "NaN"
-                            ),
-                            "test_rmse": (
-                                f"{test_rmse:.4f}" if not np.isnan(test_rmse) else "NaN"
-                            ),
-                            "cell_size": idw_params["cell_size"],
-                            "weight": idw_params["weight"],
-                            "radius": idw_params["radius"],
-                            "min_points": idw_params["min_points"],
-                            "train_points": len(train_gdf),
-                            "test_points": len(test_gdf),
-                        }
-                        with open(results_csv_path, "a", newline="") as csvfile:
-                            fieldnames = results_data.keys()
-                            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                            if not file_exists:
-                                writer.writeheader()  # Write header only if file is new
-                            writer.writerow(results_data)
-                        logger.info(f"RMSE results appended to: {results_csv_path}")
-                    except Exception as csv_e:
-                        logger.error(
-                            f"Error saving RMSE results to CSV: {csv_e}", exc_info=True
-                        )
-                        # Don't fail the whole process, just log the error
-
-                    # Store the path using the base class helper logic
-                    self.output_paths[output_path_key] = output_raster_path
-                    return str(
-                        output_raster_path
-                    )  # Return path even if CSV saving failed
-
-                except Exception as crs_rmse_e:
-                    logger.error(
-                        f"Error during CRS assignment or RMSE calculation for {output_raster_path}: {crs_rmse_e}",
-                        exc_info=True,
-                    )
-                    return None  # Fail if critical steps like CRS/RMSE calc fail
-            else:
-                logger.error(
-                    f"WBT IDW interpolation command completed, but output file was not created: {output_raster_path}"
-                )
-                return None
         except Exception as e:
             logger.error(f"Error during WBT IDW interpolation call: {e}", exc_info=True)
-            return None
-        # TODO readd tempfile cleanup here
+            # idw_success remains False
+
+        finally:
+            # --- Cleanup Temporary Directory ---
+            # This happens automatically when temp_dir_obj goes out of scope
+            # or explicitly via temp_dir_obj.cleanup() if needed sooner.
+            # We rely on the 'with' context or function exit for cleanup.
+            # Check if temp_dir_obj exists before trying to access its name or clean it up
+            if 'temp_dir_obj' in locals() and temp_dir_obj:
+                logger.info(f"Temporary directory {temp_dir_obj.name} will be cleaned up.")
+                # Explicit cleanup can be done here if needed: temp_dir_obj.cleanup()
+            else:
+                 logger.warning("Temporary directory object not created, skipping cleanup log.")
+
+
+        # --- Verification & RMSE Calculation (only if IDW ran) ---
+        if idw_success:
+            train_rmse, test_rmse = self._verify_and_calculate_rmse(
+                output_raster_path, train_gdf, test_gdf, speed_field_shp
+            )
+
+            # Check if verification/RMSE step indicated failure (e.g., file not found or RMSE calc failed)
+            if train_rmse is None and test_rmse is None:
+                 logger.error("Verification or RMSE calculation failed after IDW.")
+                 return None # Indicate overall failure
+
+            # Store the path using the base class helper logic if successful
+            self.output_paths[output_path_key] = output_raster_path
+            logger.info(f"Successfully generated raster: {output_raster_path}")
+            return str(output_raster_path)
+        else:
+            logger.error("IDW interpolation step failed. Cannot proceed.")
+            return None # Indicate failure due to IDW error
 
     def build(self):
         """Builds the average speed raster from activity data."""
