@@ -3,20 +3,9 @@ import dask
 import geopandas as gpd
 import pandas as pd  # Import pandas
 
-logger = logging.getLogger(__name__)  # Define logger
-
 # Local imports (adjust relative paths as needed)
-try:
-    from .feature_base import FeatureBase
-    from src.config import AppConfig
-    from src.utils import load_vector_data, polyline_to_points, save_vector_data
-except ImportError:
-    logger.warning(
-        "Could not import from src.* or .feature_base directly, attempting relative import..."
-    )
-    from feature_base import FeatureBase
-    from ...config import AppConfig
-    from ...utils import load_vector_data, polyline_to_points, save_vector_data
+from src.tasks.features.feature_base import FeatureBase
+from src.utils import load_vector_data, polyline_to_points, save_vector_data
 
 logger = logging.getLogger(__name__)
 
@@ -53,40 +42,16 @@ class Elevation(FeatureBase):
                 self.gdf = None
                 return
 
-            # TODO: Ensure elevation field exists and has correct name/type
-            # Need to add 'n50_contour_elevation_field' to InputDataConfig
-            elevation_field = getattr(
-                self.settings.input_data, "n50_contour_elevation_field", None
-            )
+            elevation_field = self.settings.input_data.n50_contour_elevation_field
             if not elevation_field or elevation_field not in self.gdf.columns:
-                # Attempt to find a likely candidate if not configured or missing
-                potential_fields = [
-                    "hoyde",
-                    "HOYDE",
-                    "CONTOUR",
-                    "Z_Value",
-                    "Elevation",
-                    "ELEV",
-                ]
-                found_field = None
-                for field in potential_fields:
-                    if field in self.gdf.columns:
-                        found_field = field
-                        logger.warning(
-                            f"Elevation field not configured or found ('{elevation_field}'). Using fallback field: '{found_field}'"
-                        )
-                        break
-                if not found_field:
-                    logger.error(
-                        f"Could not find a suitable elevation field in contour data. Checked: {potential_fields}"
-                    )
-                    self.gdf = None
-                    return
-                self.elevation_field_name = found_field  # Store the found field name
-            else:
-                self.elevation_field_name = (
-                    elevation_field  # Store the configured field name
+                logger.error(
+                    "Could not find a suitable elevation field in contour data. " \
+                    "Update `n50_contour_elevation_field` in config"
                 )
+                self.gdf = None
+                return
+            else:
+                self.elevation_field_name = elevation_field  
 
             # Ensure elevation field is numeric
             self.gdf[self.elevation_field_name] = pd.to_numeric(

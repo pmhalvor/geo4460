@@ -92,7 +92,8 @@ class InputDataConfig(BaseModel):
     n50_land_cover_layer: str = "N50_Arealdekke_omrade"  # omrade or grense works
     n50_roads_layer: str = "veg_veglenke"  # TODO update w/ correct field name
     n50_bike_lanes_layer: str = "veg_sykkelveg"  # TODO update w/ correct field name
-    n50_contour_layer: str = "terreng_N50_kontur"  # TODO update w/ correct field name
+    n50_contour_layer: str = "N50_Høyde_senterlinje"
+    n50_contour_elevation_field: str = "hoyde"
 
     # Strava Segments Fields
     segment_id_field: str = "id"
