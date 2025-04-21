@@ -51,6 +51,10 @@ class PathsConfig(BaseModel):
         / "segments"
         / "segment_details_cache.csv"
     )
+    activity_details_dir: Path = Field(
+        default_factory=lambda: BASE_DIR / "data" / "activity_details",
+        description="Directory activity details stored at after collection",
+    )
 
     # Ensure directories exist or create them if needed
     def __init__(self, **data):
@@ -123,7 +127,8 @@ class OutputFilesConfig(BaseModel):
 
     # Prepared Data (GeoDataFrames saved, e.g., as GeoPackage)
     prepared_segments_gpkg: str = "prepared_segments.gpkg"
-    prepared_activities_gpkg: str = "prepared_activities.gpkg"
+    prepared_activities_gpkg: str = "prepared_activities.gpkg"  # not used TODO remove
+    prepared_activity_splits_gpkg: str = "prepared_activity_splits.gpkg"
     prepared_traffic_points_gpkg: str = "prepared_traffic_points.gpkg"
     prepared_roads_gpkg: str = "prepared_roads.gpkg"  # From N50
     prepared_bike_lanes_gpkg: str = "prepared_bike_lanes.gpkg"  # From N50
@@ -144,6 +149,7 @@ class OutputFilesConfig(BaseModel):
     segment_popularity_vector_prefix: str = (
         "segment_popularity_vector"  # e.g., segment_popularity_vector_athletes_per_age.gpkg
     )
+    average_speed_vector: str = "average_speed_vector.gpkg"
 
     # Intermediate Files (optional, for debugging)
     buffered_traffic_stations_gpkg: str = "buffered_traffic_stations.gpkg"
