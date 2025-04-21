@@ -107,3 +107,608 @@
 2025-04-21 19:16:16,108 - INFO - Scheduler closing all comms
 2025-04-21 19:16:16,109 - INFO - Dask cluster closed.
 2025-04-21 19:16:16,109 - INFO - --- Standalone Test Finished ---
+2025-04-21 19:31:05,095 - INFO - --- Running elevation.py Standalone Test ---
+2025-04-21 19:31:05,095 - INFO - Using Output Directory: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1931
+2025-04-21 19:31:05,095 - INFO - Configured DEM Interpolation Method: natural_neighbor (default)
+2025-04-21 19:31:05,142 - INFO - To route to workers diagnostics web server please install jupyter-server-proxy: python -m pip install jupyter-server-proxy
+2025-04-21 19:31:05,145 - INFO - State start
+2025-04-21 19:31:05,151 - INFO -   Scheduler at:     tcp://127.0.0.1:53554
+2025-04-21 19:31:05,151 - INFO -   dashboard at:  http://127.0.0.1:8787/status
+2025-04-21 19:31:05,152 - INFO - Registering Worker plugin shuffle
+2025-04-21 19:31:05,159 - INFO -         Start Nanny at: 'tcp://127.0.0.1:53557'
+2025-04-21 19:31:05,969 - INFO -       Start worker at:      tcp://127.0.0.1:53559
+2025-04-21 19:31:05,969 - INFO -          Listening to:      tcp://127.0.0.1:53559
+2025-04-21 19:31:05,969 - INFO -           Worker name:                          0
+2025-04-21 19:31:05,969 - INFO -          dashboard at:            127.0.0.1:53560
+2025-04-21 19:31:05,969 - INFO - Waiting to connect to:      tcp://127.0.0.1:53554
+2025-04-21 19:31:05,969 - INFO - -------------------------------------------------
+2025-04-21 19:31:05,969 - INFO -               Threads:                          1
+2025-04-21 19:31:05,969 - INFO -                Memory:                  32.00 GiB
+2025-04-21 19:31:05,969 - INFO -       Local Directory: /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/dask-scratch-space/worker-x2mxrmwy
+2025-04-21 19:31:05,969 - INFO - -------------------------------------------------
+2025-04-21 19:31:06,006 - INFO - Register worker addr: tcp://127.0.0.1:53559 name: 0
+2025-04-21 19:31:06,011 - INFO - Starting worker compute stream, tcp://127.0.0.1:53559
+2025-04-21 19:31:06,011 - INFO - Starting established connection to tcp://127.0.0.1:53561
+2025-04-21 19:31:06,012 - INFO - Starting Worker plugin shuffle
+2025-04-21 19:31:06,013 - INFO -         Registered to:      tcp://127.0.0.1:53554
+2025-04-21 19:31:06,013 - INFO - -------------------------------------------------
+2025-04-21 19:31:06,014 - INFO - Starting established connection to tcp://127.0.0.1:53554
+2025-04-21 19:31:06,054 - INFO - Receive client connection: Client-67b94b48-1ed6-11f0-b590-92a859213c95
+2025-04-21 19:31:06,054 - INFO - Starting established connection to tcp://127.0.0.1:53562
+2025-04-21 19:31:06,055 - INFO - Dask client started: http://127.0.0.1:8787/status
+2025-04-21 19:31:06,055 - INFO - --- Testing Elevation Feature ---
+2025-04-21 19:31:06,055 - INFO - 1. Testing Elevation Load Data...
+2025-04-21 19:31:06,055 - INFO - Loading N50 contour data...
+2025-04-21 19:31:06,055 - INFO - Loading vector data from: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/data/Basisdata_03_Oslo_25833_N50Kartdata_FGDB.gdb (Layer: N50_Høyde_senterlinje)
+2025-04-21 19:31:06,152 - INFO - Loaded 2268 features with CRS: EPSG:25833
+2025-04-21 19:31:06,156 - INFO - Saving 2268 features to: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1931/prepared_contours.gpkg (Layer: None, Driver: GPKG)
+2025-04-21 19:31:06,199 - INFO - Created 2,268 records
+2025-04-21 19:31:06,208 - INFO - Save complete.
+2025-04-21 19:31:06,209 - INFO - Saved intermediate vector data: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1931/prepared_contours.gpkg
+2025-04-21 19:31:06,209 - INFO - N50 Contours loaded and preprocessed.
+2025-04-21 19:31:06,209 - INFO - N50 Contours loaded. Shape: (2268, 9), CRS after load_data: EPSG:25833
+2025-04-21 19:31:06,209 - INFO - Using elevation field: 'hoyde'
+2025-04-21 19:31:06,209 - INFO - 2. Testing Elevation Build (DEM and Slope)...
+2025-04-21 19:31:06,209 - INFO - CRS before build: EPSG:25833
+2025-04-21 19:31:06,209 - INFO - Target output CRS from settings: EPSG:25833
+2025-04-21 19:31:06,272 - INFO - Building DEM and Slope rasters...
+2025-04-21 19:31:06,273 - INFO - Preparing temporary input data with target CRS: EPSG:25833
+2025-04-21 19:31:06,273 - INFO - Method 'tin' uses contours directly.
+2025-04-21 19:31:06,281 - INFO - Saving 2268 features to: /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/elevation_wbt_zlwx4vti/contours.gpkg (Layer: None, Driver: GPKG)
+2025-04-21 19:31:06,344 - INFO - Created 2,268 records
+2025-04-21 19:31:06,351 - INFO - Save complete.
+2025-04-21 19:31:06,351 - INFO - Saved temporary contours GeoPackage: /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/elevation_wbt_zlwx4vti/contours.gpkg
+2025-04-21 19:31:06,351 - INFO - Running WBT 'tin' interpolation (field: 'hoyde')...
+2025-04-21 19:31:06,351 - INFO - Using max_triangle_edge_length: 200.0
+2025-04-21 19:31:06,399 - INFO - GDAL signalled an error: err_no=4, msg='/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1931/elevation_dem.tif: No such file or directory'
+2025-04-21 19:31:06,399 - ERROR - Failed to rewrite raster /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1931/elevation_dem.tif with correct CRS: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1931/elevation_dem.tif: No such file or directory
+Traceback (most recent call last):
+  File "rasterio/_base.pyx", line 310, in rasterio._base.DatasetBase.__init__
+  File "rasterio/_base.pyx", line 221, in rasterio._base.open_dataset
+  File "rasterio/_err.pyx", line 359, in rasterio._err.exc_wrap_pointer
+rasterio._err.CPLE_OpenFailedError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1931/elevation_dem.tif: No such file or directory
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/src/tasks/features/elevation.py", line 98, in _assign_crs_to_raster
+    with rasterio.open(raster_path) as src:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/env.py", line 463, in wrapper
+    return f(*args, **kwds)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/__init__.py", line 356, in open
+    dataset = DatasetReader(path, driver=driver, sharing=sharing, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "rasterio/_base.pyx", line 312, in rasterio._base.DatasetBase.__init__
+rasterio.errors.RasterioIOError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1931/elevation_dem.tif: No such file or directory
+2025-04-21 19:31:06,401 - ERROR - Error during WBT DEM/Slope generation (tin): /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1931/elevation_dem.tif: No such file or directory
+Traceback (most recent call last):
+  File "rasterio/_base.pyx", line 310, in rasterio._base.DatasetBase.__init__
+  File "rasterio/_base.pyx", line 221, in rasterio._base.open_dataset
+  File "rasterio/_err.pyx", line 359, in rasterio._err.exc_wrap_pointer
+rasterio._err.CPLE_OpenFailedError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1931/elevation_dem.tif: No such file or directory
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/src/tasks/features/elevation.py", line 240, in _build_dem_and_slope
+    if dem_generated: self._assign_crs_to_raster(dem_path, self.settings.processing.output_crs_epsg)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/src/tasks/features/elevation.py", line 98, in _assign_crs_to_raster
+    with rasterio.open(raster_path) as src:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/env.py", line 463, in wrapper
+    return f(*args, **kwds)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/__init__.py", line 356, in open
+    dataset = DatasetReader(path, driver=driver, sharing=sharing, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "rasterio/_base.pyx", line 312, in rasterio._base.DatasetBase.__init__
+rasterio.errors.RasterioIOError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1931/elevation_dem.tif: No such file or directory
+2025-04-21 19:31:06,406 - INFO - Elevation build process completed.
+2025-04-21 19:31:06,406 - WARNING - No raster paths generated by build process. Skipping map display.
+2025-04-21 19:31:06,406 - INFO - --- Elevation Feature Test Completed ---
+2025-04-21 19:31:06,417 - INFO - Remove client Client-67b94b48-1ed6-11f0-b590-92a859213c95
+2025-04-21 19:31:06,417 - INFO - Received 'close-stream' from tcp://127.0.0.1:53562; closing.
+2025-04-21 19:31:06,417 - INFO - Remove client Client-67b94b48-1ed6-11f0-b590-92a859213c95
+2025-04-21 19:31:06,417 - INFO - Close client connection: Client-67b94b48-1ed6-11f0-b590-92a859213c95
+2025-04-21 19:31:06,418 - INFO - Dask client closed.
+2025-04-21 19:31:06,418 - INFO - Retire worker addresses (stimulus_id='retire-workers-1745256666.418509') (0,)
+2025-04-21 19:31:06,418 - INFO - Closing Nanny at 'tcp://127.0.0.1:53557'. Reason: nanny-close
+2025-04-21 19:31:06,418 - INFO - Nanny asking worker to close. Reason: nanny-close
+2025-04-21 19:31:06,419 - INFO - Stopping worker at tcp://127.0.0.1:53559. Reason: nanny-close
+2025-04-21 19:31:06,419 - INFO - Removing Worker plugin shuffle
+2025-04-21 19:31:06,420 - INFO - Received 'close-stream' from tcp://127.0.0.1:53561; closing.
+2025-04-21 19:31:06,420 - INFO - Remove worker addr: tcp://127.0.0.1:53559 name: 0 (stimulus_id='handle-worker-cleanup-1745256666.420405')
+2025-04-21 19:31:06,420 - INFO - Lost all workers
+2025-04-21 19:31:06,420 - INFO - Connection to tcp://127.0.0.1:53554 has been closed.
+2025-04-21 19:31:06,524 - INFO - Nanny at 'tcp://127.0.0.1:53557' closed.
+2025-04-21 19:31:06,525 - INFO - Closing scheduler. Reason: unknown
+2025-04-21 19:31:06,525 - INFO - Scheduler closing all comms
+2025-04-21 19:31:06,526 - INFO - Dask cluster closed.
+2025-04-21 19:31:06,526 - INFO - --- Standalone Test Finished ---
+2025-04-21 19:32:48,701 - INFO - --- Running elevation.py Standalone Test ---
+2025-04-21 19:32:48,701 - INFO - Using Output Directory: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1932
+2025-04-21 19:32:48,702 - INFO - Configured DEM Interpolation Method: natural_neighbor (default)
+2025-04-21 19:32:48,741 - INFO - To route to workers diagnostics web server please install jupyter-server-proxy: python -m pip install jupyter-server-proxy
+2025-04-21 19:32:48,743 - INFO - State start
+2025-04-21 19:32:48,749 - INFO -   Scheduler at:     tcp://127.0.0.1:53613
+2025-04-21 19:32:48,749 - INFO -   dashboard at:  http://127.0.0.1:8787/status
+2025-04-21 19:32:48,749 - INFO - Registering Worker plugin shuffle
+2025-04-21 19:32:48,756 - INFO -         Start Nanny at: 'tcp://127.0.0.1:53616'
+2025-04-21 19:32:49,596 - INFO -       Start worker at:      tcp://127.0.0.1:53618
+2025-04-21 19:32:49,596 - INFO -          Listening to:      tcp://127.0.0.1:53618
+2025-04-21 19:32:49,596 - INFO -           Worker name:                          0
+2025-04-21 19:32:49,596 - INFO -          dashboard at:            127.0.0.1:53619
+2025-04-21 19:32:49,596 - INFO - Waiting to connect to:      tcp://127.0.0.1:53613
+2025-04-21 19:32:49,596 - INFO - -------------------------------------------------
+2025-04-21 19:32:49,596 - INFO -               Threads:                          1
+2025-04-21 19:32:49,596 - INFO -                Memory:                  32.00 GiB
+2025-04-21 19:32:49,596 - INFO -       Local Directory: /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/dask-scratch-space/worker-8od4frmr
+2025-04-21 19:32:49,596 - INFO - -------------------------------------------------
+2025-04-21 19:32:49,633 - INFO - Register worker addr: tcp://127.0.0.1:53618 name: 0
+2025-04-21 19:32:49,638 - INFO - Starting worker compute stream, tcp://127.0.0.1:53618
+2025-04-21 19:32:49,639 - INFO - Starting established connection to tcp://127.0.0.1:53620
+2025-04-21 19:32:49,640 - INFO - Starting Worker plugin shuffle
+2025-04-21 19:32:49,640 - INFO -         Registered to:      tcp://127.0.0.1:53613
+2025-04-21 19:32:49,640 - INFO - -------------------------------------------------
+2025-04-21 19:32:49,641 - INFO - Starting established connection to tcp://127.0.0.1:53613
+2025-04-21 19:32:49,647 - INFO - Receive client connection: Client-a578640a-1ed6-11f0-b6d1-92a859213c95
+2025-04-21 19:32:49,647 - INFO - Starting established connection to tcp://127.0.0.1:53621
+2025-04-21 19:32:49,648 - INFO - Dask client started: http://127.0.0.1:8787/status
+2025-04-21 19:32:49,648 - INFO - --- Testing Elevation Feature ---
+2025-04-21 19:32:49,648 - INFO - 1. Testing Elevation Load Data...
+2025-04-21 19:32:49,648 - INFO - Loading N50 contour data...
+2025-04-21 19:32:49,648 - INFO - Loading vector data from: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/data/Basisdata_03_Oslo_25833_N50Kartdata_FGDB.gdb (Layer: N50_Høyde_senterlinje)
+2025-04-21 19:32:49,739 - INFO - Loaded 2268 features with CRS: EPSG:25833
+2025-04-21 19:32:49,742 - INFO - Saving 2268 features to: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1932/prepared_contours.gpkg (Layer: None, Driver: GPKG)
+2025-04-21 19:32:49,788 - INFO - Created 2,268 records
+2025-04-21 19:32:49,794 - INFO - Save complete.
+2025-04-21 19:32:49,794 - INFO - Saved intermediate vector data: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1932/prepared_contours.gpkg
+2025-04-21 19:32:49,795 - INFO - N50 Contours loaded and preprocessed.
+2025-04-21 19:32:49,795 - INFO - N50 Contours loaded. Shape: (2268, 9), CRS after load_data: EPSG:25833
+2025-04-21 19:32:49,795 - INFO - Using elevation field: 'hoyde'
+2025-04-21 19:32:49,795 - INFO - 2. Testing Elevation Build (DEM and Slope)...
+2025-04-21 19:32:49,795 - INFO - CRS before build: EPSG:25833
+2025-04-21 19:32:49,795 - INFO - Target output CRS from settings: EPSG:25833
+2025-04-21 19:32:49,855 - INFO - Building DEM and Slope rasters...
+2025-04-21 19:32:49,856 - INFO - Preparing temporary input data with target CRS: EPSG:25833
+2025-04-21 19:32:49,857 - INFO - Method 'nn' uses contours directly.
+2025-04-21 19:32:49,864 - INFO - Saving 2268 features to: /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/elevation_wbt_puzikd4e/contours.gpkg (Layer: None, Driver: GPKG)
+2025-04-21 19:32:49,924 - INFO - Created 2,268 records
+2025-04-21 19:32:49,930 - INFO - Save complete.
+2025-04-21 19:32:49,930 - INFO - Saved temporary contours GeoPackage: /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/elevation_wbt_puzikd4e/contours.gpkg
+2025-04-21 19:32:49,930 - INFO - Running WBT 'nn' interpolation (field: 'hoyde')...
+2025-04-21 19:32:49,980 - INFO - GDAL signalled an error: err_no=4, msg='/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1932/elevation_dem.tif: No such file or directory'
+2025-04-21 19:32:49,980 - ERROR - Failed to rewrite raster /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1932/elevation_dem.tif with correct CRS: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1932/elevation_dem.tif: No such file or directory
+Traceback (most recent call last):
+  File "rasterio/_base.pyx", line 310, in rasterio._base.DatasetBase.__init__
+  File "rasterio/_base.pyx", line 221, in rasterio._base.open_dataset
+  File "rasterio/_err.pyx", line 359, in rasterio._err.exc_wrap_pointer
+rasterio._err.CPLE_OpenFailedError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1932/elevation_dem.tif: No such file or directory
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/src/tasks/features/elevation.py", line 98, in _assign_crs_to_raster
+    with rasterio.open(raster_path) as src:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/env.py", line 463, in wrapper
+    return f(*args, **kwds)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/__init__.py", line 356, in open
+    dataset = DatasetReader(path, driver=driver, sharing=sharing, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "rasterio/_base.pyx", line 312, in rasterio._base.DatasetBase.__init__
+rasterio.errors.RasterioIOError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1932/elevation_dem.tif: No such file or directory
+2025-04-21 19:32:49,982 - ERROR - Error during WBT DEM/Slope generation (nn): /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1932/elevation_dem.tif: No such file or directory
+Traceback (most recent call last):
+  File "rasterio/_base.pyx", line 310, in rasterio._base.DatasetBase.__init__
+  File "rasterio/_base.pyx", line 221, in rasterio._base.open_dataset
+  File "rasterio/_err.pyx", line 359, in rasterio._err.exc_wrap_pointer
+rasterio._err.CPLE_OpenFailedError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1932/elevation_dem.tif: No such file or directory
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/src/tasks/features/elevation.py", line 221, in _build_dem_and_slope
+    if dem_generated: self._assign_crs_to_raster(dem_path, self.settings.processing.output_crs_epsg)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/src/tasks/features/elevation.py", line 98, in _assign_crs_to_raster
+    with rasterio.open(raster_path) as src:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/env.py", line 463, in wrapper
+    return f(*args, **kwds)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/__init__.py", line 356, in open
+    dataset = DatasetReader(path, driver=driver, sharing=sharing, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "rasterio/_base.pyx", line 312, in rasterio._base.DatasetBase.__init__
+rasterio.errors.RasterioIOError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1932/elevation_dem.tif: No such file or directory
+2025-04-21 19:32:49,987 - INFO - Elevation build process completed.
+2025-04-21 19:32:49,987 - WARNING - No raster paths generated by build process. Skipping map display.
+2025-04-21 19:32:49,987 - INFO - --- Elevation Feature Test Completed ---
+2025-04-21 19:32:49,998 - INFO - Remove client Client-a578640a-1ed6-11f0-b6d1-92a859213c95
+2025-04-21 19:32:49,998 - INFO - Received 'close-stream' from tcp://127.0.0.1:53621; closing.
+2025-04-21 19:32:49,998 - INFO - Remove client Client-a578640a-1ed6-11f0-b6d1-92a859213c95
+2025-04-21 19:32:49,998 - INFO - Close client connection: Client-a578640a-1ed6-11f0-b6d1-92a859213c95
+2025-04-21 19:32:49,999 - INFO - Dask client closed.
+2025-04-21 19:32:49,999 - INFO - Retire worker addresses (stimulus_id='retire-workers-1745256769.999512') (0,)
+2025-04-21 19:32:49,999 - INFO - Closing Nanny at 'tcp://127.0.0.1:53616'. Reason: nanny-close
+2025-04-21 19:32:49,999 - INFO - Nanny asking worker to close. Reason: nanny-close
+2025-04-21 19:32:50,000 - INFO - Stopping worker at tcp://127.0.0.1:53618. Reason: nanny-close
+2025-04-21 19:32:50,000 - INFO - Removing Worker plugin shuffle
+2025-04-21 19:32:50,001 - INFO - Received 'close-stream' from tcp://127.0.0.1:53620; closing.
+2025-04-21 19:32:50,001 - INFO - Remove worker addr: tcp://127.0.0.1:53618 name: 0 (stimulus_id='handle-worker-cleanup-1745256770.0014231')
+2025-04-21 19:32:50,001 - INFO - Lost all workers
+2025-04-21 19:32:50,001 - INFO - Connection to tcp://127.0.0.1:53613 has been closed.
+2025-04-21 19:32:50,106 - INFO - Nanny at 'tcp://127.0.0.1:53616' closed.
+2025-04-21 19:32:50,107 - INFO - Closing scheduler. Reason: unknown
+2025-04-21 19:32:50,107 - INFO - Scheduler closing all comms
+2025-04-21 19:32:50,108 - INFO - Dask cluster closed.
+2025-04-21 19:32:50,109 - INFO - --- Standalone Test Finished ---
+2025-04-21 19:34:47,839 - INFO - --- Running elevation.py Standalone Test ---
+2025-04-21 19:34:47,840 - INFO - Using Output Directory: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1934
+2025-04-21 19:34:47,840 - INFO - Configured DEM Interpolation Method: natural_neighbor (default)
+2025-04-21 19:34:47,875 - INFO - To route to workers diagnostics web server please install jupyter-server-proxy: python -m pip install jupyter-server-proxy
+2025-04-21 19:34:47,878 - INFO - State start
+2025-04-21 19:34:47,884 - INFO -   Scheduler at:     tcp://127.0.0.1:53637
+2025-04-21 19:34:47,884 - INFO -   dashboard at:  http://127.0.0.1:8787/status
+2025-04-21 19:34:47,884 - INFO - Registering Worker plugin shuffle
+2025-04-21 19:34:47,890 - INFO -         Start Nanny at: 'tcp://127.0.0.1:53640'
+2025-04-21 19:34:48,718 - INFO -       Start worker at:      tcp://127.0.0.1:53642
+2025-04-21 19:34:48,718 - INFO -          Listening to:      tcp://127.0.0.1:53642
+2025-04-21 19:34:48,718 - INFO -           Worker name:                          0
+2025-04-21 19:34:48,718 - INFO -          dashboard at:            127.0.0.1:53643
+2025-04-21 19:34:48,718 - INFO - Waiting to connect to:      tcp://127.0.0.1:53637
+2025-04-21 19:34:48,718 - INFO - -------------------------------------------------
+2025-04-21 19:34:48,718 - INFO -               Threads:                          1
+2025-04-21 19:34:48,719 - INFO -                Memory:                  32.00 GiB
+2025-04-21 19:34:48,719 - INFO -       Local Directory: /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/dask-scratch-space/worker-n8rkhi4x
+2025-04-21 19:34:48,719 - INFO - -------------------------------------------------
+2025-04-21 19:34:48,756 - INFO - Register worker addr: tcp://127.0.0.1:53642 name: 0
+2025-04-21 19:34:48,761 - INFO - Starting worker compute stream, tcp://127.0.0.1:53642
+2025-04-21 19:34:48,761 - INFO - Starting established connection to tcp://127.0.0.1:53644
+2025-04-21 19:34:48,762 - INFO - Starting Worker plugin shuffle
+2025-04-21 19:34:48,762 - INFO -         Registered to:      tcp://127.0.0.1:53637
+2025-04-21 19:34:48,762 - INFO - -------------------------------------------------
+2025-04-21 19:34:48,763 - INFO - Starting established connection to tcp://127.0.0.1:53637
+2025-04-21 19:34:48,777 - INFO - Receive client connection: Client-ec7a27d0-1ed6-11f0-b7c8-92a859213c95
+2025-04-21 19:34:48,777 - INFO - Starting established connection to tcp://127.0.0.1:53645
+2025-04-21 19:34:48,778 - INFO - Dask client started: http://127.0.0.1:8787/status
+2025-04-21 19:34:48,778 - INFO - --- Testing Elevation Feature ---
+2025-04-21 19:34:48,778 - INFO - 1. Testing Elevation Load Data...
+2025-04-21 19:34:48,778 - INFO - Loading N50 contour data...
+2025-04-21 19:34:48,779 - INFO - Loading vector data from: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/data/Basisdata_03_Oslo_25833_N50Kartdata_FGDB.gdb (Layer: N50_Høyde_senterlinje)
+2025-04-21 19:34:48,867 - INFO - Loaded 2268 features with CRS: EPSG:25833
+2025-04-21 19:34:48,870 - INFO - Saving 2268 features to: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1934/prepared_contours.gpkg (Layer: None, Driver: GPKG)
+2025-04-21 19:34:48,912 - INFO - Created 2,268 records
+2025-04-21 19:34:48,918 - INFO - Save complete.
+2025-04-21 19:34:48,918 - INFO - Saved intermediate vector data: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1934/prepared_contours.gpkg
+2025-04-21 19:34:48,919 - INFO - N50 Contours loaded and preprocessed.
+2025-04-21 19:34:48,919 - INFO - N50 Contours loaded. Shape: (2268, 9), CRS after load_data: EPSG:25833
+2025-04-21 19:34:48,919 - INFO - Using elevation field: 'hoyde'
+2025-04-21 19:34:48,919 - INFO - 2. Testing Elevation Build (DEM and Slope)...
+2025-04-21 19:34:48,919 - INFO - CRS before build: EPSG:25833
+2025-04-21 19:34:48,919 - INFO - Target output CRS from settings: EPSG:25833
+2025-04-21 19:34:48,977 - INFO - Building DEM and Slope rasters...
+2025-04-21 19:34:48,978 - INFO - Preparing temporary input data with target CRS: EPSG:25833
+2025-04-21 19:34:48,978 - INFO - Method 'nn' uses contours directly (using GPKG).
+2025-04-21 19:34:48,985 - INFO - Saving 2268 features to: /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/elevation_wbt__e9qoec5/contours.gpkg (Layer: None, Driver: GPKG)
+2025-04-21 19:34:49,045 - INFO - Created 2,268 records
+2025-04-21 19:34:49,051 - INFO - Save complete.
+2025-04-21 19:34:49,051 - INFO - Saved temporary contours file (GPKG): /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/elevation_wbt__e9qoec5/contours.gpkg
+2025-04-21 19:34:49,051 - INFO - Running WBT 'nn' interpolation (field: 'hoyde')...
+2025-04-21 19:34:49,097 - INFO - GDAL signalled an error: err_no=4, msg='/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1934/elevation_dem.tif: No such file or directory'
+2025-04-21 19:34:49,097 - ERROR - Failed to rewrite raster /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1934/elevation_dem.tif with correct CRS: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1934/elevation_dem.tif: No such file or directory
+Traceback (most recent call last):
+  File "rasterio/_base.pyx", line 310, in rasterio._base.DatasetBase.__init__
+  File "rasterio/_base.pyx", line 221, in rasterio._base.open_dataset
+  File "rasterio/_err.pyx", line 359, in rasterio._err.exc_wrap_pointer
+rasterio._err.CPLE_OpenFailedError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1934/elevation_dem.tif: No such file or directory
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/src/tasks/features/elevation.py", line 98, in _assign_crs_to_raster
+    with rasterio.open(raster_path) as src:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/env.py", line 463, in wrapper
+    return f(*args, **kwds)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/__init__.py", line 356, in open
+    dataset = DatasetReader(path, driver=driver, sharing=sharing, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "rasterio/_base.pyx", line 312, in rasterio._base.DatasetBase.__init__
+rasterio.errors.RasterioIOError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1934/elevation_dem.tif: No such file or directory
+2025-04-21 19:34:49,099 - ERROR - Error during WBT DEM/Slope generation (nn): /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1934/elevation_dem.tif: No such file or directory
+Traceback (most recent call last):
+  File "rasterio/_base.pyx", line 310, in rasterio._base.DatasetBase.__init__
+  File "rasterio/_base.pyx", line 221, in rasterio._base.open_dataset
+  File "rasterio/_err.pyx", line 359, in rasterio._err.exc_wrap_pointer
+rasterio._err.CPLE_OpenFailedError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1934/elevation_dem.tif: No such file or directory
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/src/tasks/features/elevation.py", line 222, in _build_dem_and_slope
+    if dem_generated: self._assign_crs_to_raster(dem_path, self.settings.processing.output_crs_epsg)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/src/tasks/features/elevation.py", line 98, in _assign_crs_to_raster
+    with rasterio.open(raster_path) as src:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/env.py", line 463, in wrapper
+    return f(*args, **kwds)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/__init__.py", line 356, in open
+    dataset = DatasetReader(path, driver=driver, sharing=sharing, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "rasterio/_base.pyx", line 312, in rasterio._base.DatasetBase.__init__
+rasterio.errors.RasterioIOError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1934/elevation_dem.tif: No such file or directory
+2025-04-21 19:34:49,104 - INFO - Elevation build process completed.
+2025-04-21 19:34:49,104 - WARNING - No raster paths generated by build process. Skipping map display.
+2025-04-21 19:34:49,105 - INFO - --- Elevation Feature Test Completed ---
+2025-04-21 19:34:49,115 - INFO - Remove client Client-ec7a27d0-1ed6-11f0-b7c8-92a859213c95
+2025-04-21 19:34:49,115 - INFO - Received 'close-stream' from tcp://127.0.0.1:53645; closing.
+2025-04-21 19:34:49,115 - INFO - Remove client Client-ec7a27d0-1ed6-11f0-b7c8-92a859213c95
+2025-04-21 19:34:49,115 - INFO - Close client connection: Client-ec7a27d0-1ed6-11f0-b7c8-92a859213c95
+2025-04-21 19:34:49,115 - INFO - Dask client closed.
+2025-04-21 19:34:49,116 - INFO - Retire worker addresses (stimulus_id='retire-workers-1745256889.1162298') (0,)
+2025-04-21 19:34:49,116 - INFO - Closing Nanny at 'tcp://127.0.0.1:53640'. Reason: nanny-close
+2025-04-21 19:34:49,116 - INFO - Nanny asking worker to close. Reason: nanny-close
+2025-04-21 19:34:49,117 - INFO - Stopping worker at tcp://127.0.0.1:53642. Reason: nanny-close
+2025-04-21 19:34:49,117 - INFO - Removing Worker plugin shuffle
+2025-04-21 19:34:49,118 - INFO - Received 'close-stream' from tcp://127.0.0.1:53644; closing.
+2025-04-21 19:34:49,118 - INFO - Remove worker addr: tcp://127.0.0.1:53642 name: 0 (stimulus_id='handle-worker-cleanup-1745256889.118122')
+2025-04-21 19:34:49,118 - INFO - Lost all workers
+2025-04-21 19:34:49,118 - INFO - Connection to tcp://127.0.0.1:53637 has been closed.
+2025-04-21 19:34:49,218 - INFO - Nanny at 'tcp://127.0.0.1:53640' closed.
+2025-04-21 19:34:49,219 - INFO - Closing scheduler. Reason: unknown
+2025-04-21 19:34:49,219 - INFO - Scheduler closing all comms
+2025-04-21 19:34:49,220 - INFO - Dask cluster closed.
+2025-04-21 19:34:49,221 - INFO - --- Standalone Test Finished ---
+2025-04-21 19:36:37,384 - INFO - --- Running elevation.py Standalone Test ---
+2025-04-21 19:36:37,385 - INFO - Using Output Directory: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1936
+2025-04-21 19:36:37,385 - INFO - Configured DEM Interpolation Method: natural_neighbor (default)
+2025-04-21 19:36:37,429 - INFO - To route to workers diagnostics web server please install jupyter-server-proxy: python -m pip install jupyter-server-proxy
+2025-04-21 19:36:37,431 - INFO - State start
+2025-04-21 19:36:37,436 - INFO -   Scheduler at:     tcp://127.0.0.1:53751
+2025-04-21 19:36:37,436 - INFO -   dashboard at:  http://127.0.0.1:8787/status
+2025-04-21 19:36:37,436 - INFO - Registering Worker plugin shuffle
+2025-04-21 19:36:37,442 - INFO -         Start Nanny at: 'tcp://127.0.0.1:53754'
+2025-04-21 19:36:38,238 - INFO -       Start worker at:      tcp://127.0.0.1:53756
+2025-04-21 19:36:38,238 - INFO -          Listening to:      tcp://127.0.0.1:53756
+2025-04-21 19:36:38,238 - INFO -           Worker name:                          0
+2025-04-21 19:36:38,238 - INFO -          dashboard at:            127.0.0.1:53757
+2025-04-21 19:36:38,238 - INFO - Waiting to connect to:      tcp://127.0.0.1:53751
+2025-04-21 19:36:38,238 - INFO - -------------------------------------------------
+2025-04-21 19:36:38,238 - INFO -               Threads:                          1
+2025-04-21 19:36:38,238 - INFO -                Memory:                  32.00 GiB
+2025-04-21 19:36:38,238 - INFO -       Local Directory: /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/dask-scratch-space/worker-uqcohiw9
+2025-04-21 19:36:38,238 - INFO - -------------------------------------------------
+2025-04-21 19:36:38,273 - INFO - Register worker addr: tcp://127.0.0.1:53756 name: 0
+2025-04-21 19:36:38,278 - INFO - Starting worker compute stream, tcp://127.0.0.1:53756
+2025-04-21 19:36:38,278 - INFO - Starting established connection to tcp://127.0.0.1:53758
+2025-04-21 19:36:38,279 - INFO - Starting Worker plugin shuffle
+2025-04-21 19:36:38,279 - INFO -         Registered to:      tcp://127.0.0.1:53751
+2025-04-21 19:36:38,279 - INFO - -------------------------------------------------
+2025-04-21 19:36:38,280 - INFO - Starting established connection to tcp://127.0.0.1:53751
+2025-04-21 19:36:38,333 - INFO - Receive client connection: Client-2dc709a6-1ed7-11f0-b8a3-92a859213c95
+2025-04-21 19:36:38,333 - INFO - Starting established connection to tcp://127.0.0.1:53759
+2025-04-21 19:36:38,334 - INFO - Dask client started: http://127.0.0.1:8787/status
+2025-04-21 19:36:38,334 - INFO - --- Testing Elevation Feature ---
+2025-04-21 19:36:38,335 - INFO - 1. Testing Elevation Load Data...
+2025-04-21 19:36:38,335 - INFO - Loading N50 contour data...
+2025-04-21 19:36:38,335 - INFO - Loading vector data from: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/data/Basisdata_03_Oslo_25833_N50Kartdata_FGDB.gdb (Layer: N50_Høyde_senterlinje)
+2025-04-21 19:36:38,428 - INFO - Loaded 2268 features with CRS: EPSG:25833
+2025-04-21 19:36:38,430 - INFO - Saving 2268 features to: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1936/prepared_contours.gpkg (Layer: None, Driver: GPKG)
+2025-04-21 19:36:38,476 - INFO - Created 2,268 records
+2025-04-21 19:36:38,483 - INFO - Save complete.
+2025-04-21 19:36:38,484 - INFO - Saved intermediate vector data: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1936/prepared_contours.gpkg
+2025-04-21 19:36:38,484 - INFO - N50 Contours loaded and preprocessed.
+2025-04-21 19:36:38,484 - INFO - N50 Contours loaded. Shape: (2268, 9), CRS after load_data: EPSG:25833
+2025-04-21 19:36:38,484 - INFO - Using elevation field: 'hoyde'
+2025-04-21 19:36:38,484 - INFO - 2. Testing Elevation Build (DEM and Slope)...
+2025-04-21 19:36:38,484 - INFO - CRS before build: EPSG:25833
+2025-04-21 19:36:38,484 - INFO - Target output CRS from settings: EPSG:25833
+2025-04-21 19:36:38,544 - INFO - Building DEM and Slope rasters...
+2025-04-21 19:36:38,545 - INFO - Preparing temporary input data with target CRS: EPSG:25833
+2025-04-21 19:36:38,545 - INFO - Method 'nn' uses contours directly (using GPKG).
+2025-04-21 19:36:38,553 - INFO - Saving 2268 features to: /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/elevation_wbt_ie2tlny9/contours.gpkg (Layer: None, Driver: GPKG)
+2025-04-21 19:36:38,616 - INFO - Created 2,268 records
+2025-04-21 19:36:38,622 - INFO - Save complete.
+2025-04-21 19:36:38,622 - INFO - Saved temporary contours file (GPKG): /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/elevation_wbt_ie2tlny9/contours.gpkg
+2025-04-21 19:36:38,622 - INFO - Running WBT 'nn' interpolation (field: 'hoyde')...
+2025-04-21 19:36:38,622 - INFO - Input path: /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/elevation_wbt_ie2tlny9/contours.gpkg
+2025-04-21 19:36:38,622 - INFO - Output DEM path: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1936/elevation_dem.tif
+2025-04-21 19:36:38,669 - INFO - GDAL signalled an error: err_no=4, msg='/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1936/elevation_dem.tif: No such file or directory'
+2025-04-21 19:36:38,669 - ERROR - Failed to rewrite raster /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1936/elevation_dem.tif with correct CRS: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1936/elevation_dem.tif: No such file or directory
+Traceback (most recent call last):
+  File "rasterio/_base.pyx", line 310, in rasterio._base.DatasetBase.__init__
+  File "rasterio/_base.pyx", line 221, in rasterio._base.open_dataset
+  File "rasterio/_err.pyx", line 359, in rasterio._err.exc_wrap_pointer
+rasterio._err.CPLE_OpenFailedError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1936/elevation_dem.tif: No such file or directory
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/src/tasks/features/elevation.py", line 98, in _assign_crs_to_raster
+    with rasterio.open(raster_path) as src:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/env.py", line 463, in wrapper
+    return f(*args, **kwds)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/__init__.py", line 356, in open
+    dataset = DatasetReader(path, driver=driver, sharing=sharing, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "rasterio/_base.pyx", line 312, in rasterio._base.DatasetBase.__init__
+rasterio.errors.RasterioIOError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1936/elevation_dem.tif: No such file or directory
+2025-04-21 19:36:38,671 - ERROR - Error during WBT DEM/Slope generation (nn): /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1936/elevation_dem.tif: No such file or directory
+Traceback (most recent call last):
+  File "rasterio/_base.pyx", line 310, in rasterio._base.DatasetBase.__init__
+  File "rasterio/_base.pyx", line 221, in rasterio._base.open_dataset
+  File "rasterio/_err.pyx", line 359, in rasterio._err.exc_wrap_pointer
+rasterio._err.CPLE_OpenFailedError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1936/elevation_dem.tif: No such file or directory
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/src/tasks/features/elevation.py", line 224, in _build_dem_and_slope
+    if dem_generated: self._assign_crs_to_raster(dem_path, self.settings.processing.output_crs_epsg)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/src/tasks/features/elevation.py", line 98, in _assign_crs_to_raster
+    with rasterio.open(raster_path) as src:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/env.py", line 463, in wrapper
+    return f(*args, **kwds)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/__init__.py", line 356, in open
+    dataset = DatasetReader(path, driver=driver, sharing=sharing, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "rasterio/_base.pyx", line 312, in rasterio._base.DatasetBase.__init__
+rasterio.errors.RasterioIOError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1936/elevation_dem.tif: No such file or directory
+2025-04-21 19:36:38,677 - INFO - Elevation build process completed.
+2025-04-21 19:36:38,677 - WARNING - No raster paths generated by build process. Skipping map display.
+2025-04-21 19:36:38,677 - INFO - --- Elevation Feature Test Completed ---
+2025-04-21 19:36:38,687 - INFO - Remove client Client-2dc709a6-1ed7-11f0-b8a3-92a859213c95
+2025-04-21 19:36:38,687 - INFO - Received 'close-stream' from tcp://127.0.0.1:53759; closing.
+2025-04-21 19:36:38,687 - INFO - Remove client Client-2dc709a6-1ed7-11f0-b8a3-92a859213c95
+2025-04-21 19:36:38,688 - INFO - Close client connection: Client-2dc709a6-1ed7-11f0-b8a3-92a859213c95
+2025-04-21 19:36:38,688 - INFO - Dask client closed.
+2025-04-21 19:36:38,688 - INFO - Retire worker addresses (stimulus_id='retire-workers-1745256998.6888819') (0,)
+2025-04-21 19:36:38,689 - INFO - Closing Nanny at 'tcp://127.0.0.1:53754'. Reason: nanny-close
+2025-04-21 19:36:38,689 - INFO - Nanny asking worker to close. Reason: nanny-close
+2025-04-21 19:36:38,689 - INFO - Stopping worker at tcp://127.0.0.1:53756. Reason: nanny-close
+2025-04-21 19:36:38,689 - INFO - Removing Worker plugin shuffle
+2025-04-21 19:36:38,690 - INFO - Received 'close-stream' from tcp://127.0.0.1:53758; closing.
+2025-04-21 19:36:38,690 - INFO - Remove worker addr: tcp://127.0.0.1:53756 name: 0 (stimulus_id='handle-worker-cleanup-1745256998.6907442')
+2025-04-21 19:36:38,690 - INFO - Lost all workers
+2025-04-21 19:36:38,690 - INFO - Connection to tcp://127.0.0.1:53751 has been closed.
+2025-04-21 19:36:38,793 - INFO - Nanny at 'tcp://127.0.0.1:53754' closed.
+2025-04-21 19:36:38,794 - INFO - Closing scheduler. Reason: unknown
+2025-04-21 19:36:38,794 - INFO - Scheduler closing all comms
+2025-04-21 19:36:38,795 - INFO - Dask cluster closed.
+2025-04-21 19:36:38,795 - INFO - --- Standalone Test Finished ---
+2025-04-21 19:39:35,597 - INFO - --- Running elevation.py Standalone Test ---
+2025-04-21 19:39:35,597 - INFO - Using Output Directory: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1939
+2025-04-21 19:39:35,597 - INFO - Configured DEM Interpolation Method: natural_neighbor (default)
+2025-04-21 19:39:35,642 - INFO - To route to workers diagnostics web server please install jupyter-server-proxy: python -m pip install jupyter-server-proxy
+2025-04-21 19:39:35,644 - INFO - State start
+2025-04-21 19:39:35,649 - INFO -   Scheduler at:     tcp://127.0.0.1:53780
+2025-04-21 19:39:35,650 - INFO -   dashboard at:  http://127.0.0.1:8787/status
+2025-04-21 19:39:35,650 - INFO - Registering Worker plugin shuffle
+2025-04-21 19:39:35,656 - INFO -         Start Nanny at: 'tcp://127.0.0.1:53783'
+2025-04-21 19:39:36,458 - INFO -       Start worker at:      tcp://127.0.0.1:53785
+2025-04-21 19:39:36,458 - INFO -          Listening to:      tcp://127.0.0.1:53785
+2025-04-21 19:39:36,458 - INFO -           Worker name:                          0
+2025-04-21 19:39:36,458 - INFO -          dashboard at:            127.0.0.1:53786
+2025-04-21 19:39:36,458 - INFO - Waiting to connect to:      tcp://127.0.0.1:53780
+2025-04-21 19:39:36,458 - INFO - -------------------------------------------------
+2025-04-21 19:39:36,459 - INFO -               Threads:                          1
+2025-04-21 19:39:36,459 - INFO -                Memory:                  32.00 GiB
+2025-04-21 19:39:36,459 - INFO -       Local Directory: /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/dask-scratch-space/worker-dvfmjlho
+2025-04-21 19:39:36,459 - INFO - -------------------------------------------------
+2025-04-21 19:39:36,493 - INFO - Register worker addr: tcp://127.0.0.1:53785 name: 0
+2025-04-21 19:39:36,498 - INFO - Starting worker compute stream, tcp://127.0.0.1:53785
+2025-04-21 19:39:36,498 - INFO - Starting established connection to tcp://127.0.0.1:53787
+2025-04-21 19:39:36,499 - INFO - Starting Worker plugin shuffle
+2025-04-21 19:39:36,499 - INFO -         Registered to:      tcp://127.0.0.1:53780
+2025-04-21 19:39:36,499 - INFO - -------------------------------------------------
+2025-04-21 19:39:36,500 - INFO - Starting established connection to tcp://127.0.0.1:53780
+2025-04-21 19:39:36,546 - INFO - Receive client connection: Client-98002050-1ed7-11f0-b976-92a859213c95
+2025-04-21 19:39:36,546 - INFO - Starting established connection to tcp://127.0.0.1:53788
+2025-04-21 19:39:36,547 - INFO - Dask client started: http://127.0.0.1:8787/status
+2025-04-21 19:39:36,547 - INFO - --- Testing Elevation Feature ---
+2025-04-21 19:39:36,547 - INFO - 1. Testing Elevation Load Data...
+2025-04-21 19:39:36,547 - INFO - Loading N50 contour data...
+2025-04-21 19:39:36,547 - INFO - Loading vector data from: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/data/Basisdata_03_Oslo_25833_N50Kartdata_FGDB.gdb (Layer: N50_Høyde_senterlinje)
+2025-04-21 19:39:36,642 - INFO - Loaded 2268 features with CRS: EPSG:25833
+2025-04-21 19:39:36,645 - INFO - Saving 2268 features to: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1939/prepared_contours.gpkg (Layer: None, Driver: GPKG)
+2025-04-21 19:39:36,687 - INFO - Created 2,268 records
+2025-04-21 19:39:36,693 - INFO - Save complete.
+2025-04-21 19:39:36,694 - INFO - Saved intermediate vector data: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1939/prepared_contours.gpkg
+2025-04-21 19:39:36,694 - INFO - N50 Contours loaded and preprocessed.
+2025-04-21 19:39:36,694 - INFO - N50 Contours loaded. Shape: (2268, 9), CRS after load_data: EPSG:25833
+2025-04-21 19:39:36,694 - INFO - Using elevation field: 'hoyde'
+2025-04-21 19:39:36,694 - INFO - 2. Testing Elevation Build (DEM and Slope)...
+2025-04-21 19:39:36,694 - INFO - CRS before build: EPSG:25833
+2025-04-21 19:39:36,694 - INFO - Target output CRS from settings: EPSG:25833
+2025-04-21 19:39:36,757 - INFO - Building DEM and Slope rasters...
+2025-04-21 19:39:36,759 - INFO - Preparing temporary input data with target CRS: EPSG:25833
+2025-04-21 19:39:36,759 - INFO - Method 'nn' uses contours directly (using Shapefile).
+2025-04-21 19:39:36,766 - INFO - Saving 2268 features to: /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/elevation_wbt_qjyn4v29/contours.shp (Layer: None, Driver: ESRI Shapefile)
+2025-04-21 19:39:36,833 - INFO - Created 2,268 records
+2025-04-21 19:39:36,834 - INFO - Save complete.
+2025-04-21 19:39:36,834 - INFO - Saved temporary contours file (ESRI Shapefile): /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/elevation_wbt_qjyn4v29/contours.shp
+2025-04-21 19:39:36,834 - INFO - Running WBT 'nn' interpolation (field: 'hoyde')...
+2025-04-21 19:39:36,834 - INFO - Input path: /var/folders/9t/2ktxww317sjf49by2n8qnpb80000gp/T/elevation_wbt_qjyn4v29/contours.shp
+2025-04-21 19:39:36,834 - INFO - Output DEM path: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1939/elevation_dem.tif
+2025-04-21 19:39:36,886 - INFO - GDAL signalled an error: err_no=4, msg='/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1939/elevation_dem.tif: No such file or directory'
+2025-04-21 19:39:36,886 - ERROR - Failed to rewrite raster /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1939/elevation_dem.tif with correct CRS: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1939/elevation_dem.tif: No such file or directory
+Traceback (most recent call last):
+  File "rasterio/_base.pyx", line 310, in rasterio._base.DatasetBase.__init__
+  File "rasterio/_base.pyx", line 221, in rasterio._base.open_dataset
+  File "rasterio/_err.pyx", line 359, in rasterio._err.exc_wrap_pointer
+rasterio._err.CPLE_OpenFailedError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1939/elevation_dem.tif: No such file or directory
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/src/tasks/features/elevation.py", line 98, in _assign_crs_to_raster
+    with rasterio.open(raster_path) as src:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/env.py", line 463, in wrapper
+    return f(*args, **kwds)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/__init__.py", line 356, in open
+    dataset = DatasetReader(path, driver=driver, sharing=sharing, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "rasterio/_base.pyx", line 312, in rasterio._base.DatasetBase.__init__
+rasterio.errors.RasterioIOError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1939/elevation_dem.tif: No such file or directory
+2025-04-21 19:39:36,888 - ERROR - Error during WBT DEM/Slope generation (nn): /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1939/elevation_dem.tif: No such file or directory
+Traceback (most recent call last):
+  File "rasterio/_base.pyx", line 310, in rasterio._base.DatasetBase.__init__
+  File "rasterio/_base.pyx", line 221, in rasterio._base.open_dataset
+  File "rasterio/_err.pyx", line 359, in rasterio._err.exc_wrap_pointer
+rasterio._err.CPLE_OpenFailedError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1939/elevation_dem.tif: No such file or directory
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/src/tasks/features/elevation.py", line 224, in _build_dem_and_slope
+    if dem_generated: self._assign_crs_to_raster(dem_path, self.settings.processing.output_crs_epsg)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/src/tasks/features/elevation.py", line 98, in _assign_crs_to_raster
+    with rasterio.open(raster_path) as src:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/env.py", line 463, in wrapper
+    return f(*args, **kwds)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/geo4460/lib/python3.11/site-packages/rasterio/__init__.py", line 356, in open
+    dataset = DatasetReader(path, driver=driver, sharing=sharing, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "rasterio/_base.pyx", line 312, in rasterio._base.DatasetBase.__init__
+rasterio.errors.RasterioIOError: /Users/per.morten.halvorsen@schibsted.com/uio/geo4460/mca/output/mca_20250421_1939/elevation_dem.tif: No such file or directory
+2025-04-21 19:39:36,895 - INFO - Elevation build process completed.
+2025-04-21 19:39:36,895 - WARNING - No raster paths generated by build process. Skipping map display.
+2025-04-21 19:39:36,895 - INFO - --- Elevation Feature Test Completed ---
+2025-04-21 19:39:36,905 - INFO - Remove client Client-98002050-1ed7-11f0-b976-92a859213c95
+2025-04-21 19:39:36,906 - INFO - Received 'close-stream' from tcp://127.0.0.1:53788; closing.
+2025-04-21 19:39:36,906 - INFO - Remove client Client-98002050-1ed7-11f0-b976-92a859213c95
+2025-04-21 19:39:36,906 - INFO - Close client connection: Client-98002050-1ed7-11f0-b976-92a859213c95
+2025-04-21 19:39:36,906 - INFO - Dask client closed.
+2025-04-21 19:39:36,907 - INFO - Retire worker addresses (stimulus_id='retire-workers-1745257176.907021') (0,)
+2025-04-21 19:39:36,907 - INFO - Closing Nanny at 'tcp://127.0.0.1:53783'. Reason: nanny-close
+2025-04-21 19:39:36,907 - INFO - Nanny asking worker to close. Reason: nanny-close
+2025-04-21 19:39:36,907 - INFO - Stopping worker at tcp://127.0.0.1:53785. Reason: nanny-close
+2025-04-21 19:39:36,908 - INFO - Removing Worker plugin shuffle
+2025-04-21 19:39:36,908 - INFO - Received 'close-stream' from tcp://127.0.0.1:53787; closing.
+2025-04-21 19:39:36,908 - INFO - Remove worker addr: tcp://127.0.0.1:53785 name: 0 (stimulus_id='handle-worker-cleanup-1745257176.908942')
+2025-04-21 19:39:36,909 - INFO - Lost all workers
+2025-04-21 19:39:36,908 - INFO - Connection to tcp://127.0.0.1:53780 has been closed.
+2025-04-21 19:39:37,012 - INFO - Nanny at 'tcp://127.0.0.1:53783' closed.
+2025-04-21 19:39:37,013 - INFO - Closing scheduler. Reason: unknown
+2025-04-21 19:39:37,013 - INFO - Scheduler closing all comms
+2025-04-21 19:39:37,014 - INFO - Dask cluster closed.
+2025-04-21 19:39:37,014 - INFO - --- Standalone Test Finished ---

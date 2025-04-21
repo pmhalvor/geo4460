@@ -185,6 +185,7 @@ class ProcessingConfig(BaseModel):
         "tin"
         # Method for interpolating segment points: 'idw', 'nn', 'tin', 'kriging' (broke)
     )
+    interpolation_method_dem: str = "nn"  # e.g. tin, idw, natural_neighbor
 
     # Feature Generation Settings
     segment_popularity_metrics: List[str] = Field(
@@ -211,6 +212,9 @@ class ProcessingConfig(BaseModel):
         default=5.0, description="Optional buffer for road/lane matching (meters)"
     )  # TODO remove if not used
     slope_units: str = "degrees"  # 'degrees' or 'percent'
+    dem_tin_max_triangle_edge_length: Optional[float] = Field(
+        default=200.0, description="Maximum edge length for TIN triangles (meters). None for WBT default."
+    )
 
     # Heatmap (Average Speed) IDW Settings
     heatmap_idw_cell_size: float = 10.0  # Cell size for the output raster (meters)

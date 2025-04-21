@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 import rasterio
 import rasterio.crs
+import geopandas as gpd # Added for explicit CRS setting
 
 from src.tasks.features.feature_base import FeatureBase
 from src.utils import load_vector_data, polyline_to_points, save_vector_data
@@ -130,9 +131,7 @@ class Elevation(FeatureBase):
             return None, None
 
         # --- Configuration ---
-        interpolation_method = getattr(
-            self.settings.processing, "dem_interpolation_method", "natural_neighbor"
-        ).lower() # Default to natural_neighbor if not set
+        interpolation_method = self.settings.processing.interpolation_method_dem.lower()
         cell_size = self.settings.processing.output_cell_size
         slope_units = self.settings.processing.slope_units
         dem_path_key = "elevation_dem_raster"
@@ -148,49 +147,73 @@ class Elevation(FeatureBase):
         if not sanitized_elev_field:
             sanitized_elev_field = "elev" # Default if name is unusable
 
-        # Use a temporary directory for intermediate files
+        # Use a temporary directory for intermediate files using GeoPackage
         with tempfile.TemporaryDirectory(prefix="elevation_wbt_") as temp_dir_name:
             temp_dir = Path(temp_dir_name)
             input_path = None # Path to the file WBT will use
             requires_points = interpolation_method in ["natural_neighbor", "idw"]
+            # Always use Shapefile for WBT interpolation input due to compatibility issues
+            temp_file_suffix = ".shp"
+            temp_driver = "ESRI Shapefile"
 
             try:
                 # Prepare input data (points or contours) based on method
+                target_crs = f"EPSG:{self.settings.processing.output_crs_epsg}"
+                logger.info(f"Preparing temporary input data with target CRS: {target_crs}")
+
                 if requires_points:
                     logger.info(f"Method '{interpolation_method}' requires points. Converting contours...")
                     # Rename field *before* converting to points
                     gdf_renamed = self.gdf.rename(
                         columns={self.elevation_field_name: sanitized_elev_field}
                     )
+                    # Ensure the GDF has the correct CRS before processing
+                    if gdf_renamed.crs != target_crs:
+                         logger.warning(f"Input GDF CRS ({gdf_renamed.crs}) differs from target ({target_crs}). Reprojecting temporary data.")
+                         gdf_renamed = gdf_renamed.to_crs(target_crs)
+
                     points_gdf = polyline_to_points(
                         gdf_renamed[[sanitized_elev_field, "geometry"]]
                     )
                     if points_gdf.empty:
                         logger.error("No points generated from contours. Cannot proceed.")
                         return None, None
-                    input_path = temp_dir / "contour_points.shp"
-                    save_vector_data(points_gdf, input_path, driver="ESRI Shapefile")
-                    logger.info(f"Saved temporary points shapefile: {input_path}")
-                else: # TIN can use contours directly
-                    logger.info(f"Method '{interpolation_method}' uses contours directly.")
+
+                    # Explicitly set CRS on the points GDF before saving
+                    points_gdf.crs = target_crs # Assign CRS directly
+                    input_path = temp_dir / f"contour_points{temp_file_suffix}"
+                    save_vector_data(points_gdf, input_path, driver=temp_driver)
+                    logger.info(f"Saved temporary points file ({temp_driver}): {input_path}")
+                else: # TIN uses contours directly (now using Shapefile)
+                    logger.info(f"Method '{interpolation_method}' uses contours directly (using Shapefile).")
                     # Rename field in the original contour GDF copy
                     gdf_renamed = self.gdf.rename(
                         columns={self.elevation_field_name: sanitized_elev_field}
                     )
-                    input_path = temp_dir / "contours.shp"
+                     # Ensure the GDF has the correct CRS before saving
+                    if gdf_renamed.crs != target_crs:
+                         logger.warning(f"Input GDF CRS ({gdf_renamed.crs}) differs from target ({target_crs}). Reprojecting temporary data.")
+                         gdf_renamed = gdf_renamed.to_crs(target_crs)
+                    else:
+                         # Ensure CRS is set even if no reprojection needed
+                         gdf_renamed.crs = target_crs
+
+                    input_path = temp_dir / f"contours{temp_file_suffix}" # Now .shp
                     save_vector_data(
                         gdf_renamed[[sanitized_elev_field, "geometry"]],
                         input_path,
-                        driver="ESRI Shapefile"
+                        driver=temp_driver # Now ESRI Shapefile
                     )
-                    logger.info(f"Saved temporary contours shapefile: {input_path}")
+                    logger.info(f"Saved temporary contours file ({temp_driver}): {input_path}")
 
                 # --- Run WBT Interpolation ---
                 logger.info(
                     f"Running WBT '{interpolation_method}' interpolation (field: '{sanitized_elev_field}')..."
                 )
+                logger.info(f"Input path: {input_path}")
+                logger.info(f"Output DEM path: {dem_path}")
                 dem_generated = False
-                if interpolation_method == "natural_neighbor":
+                if interpolation_method in ("natural_neighbor", "nn"):
                     self.wbt.natural_neighbour_interpolation(
                         i=str(input_path),
                         field=sanitized_elev_field,
@@ -200,16 +223,22 @@ class Elevation(FeatureBase):
                     dem_generated = True
                     if dem_generated: self._assign_crs_to_raster(dem_path, self.settings.processing.output_crs_epsg)
                 elif interpolation_method == "tin":
-                     # TIN interpolation might need different parameters depending on WBT version/specifics
-                     # Assuming basic usage here. Check WBT docs if needed.
-                     # It might use the vector contours directly.
-                    self.wbt.tin_interpolation(
-                        i=str(input_path),
-                        field=sanitized_elev_field,
-                        output=str(dem_path),
-                        resolution=cell_size, # Parameter name might differ
-                        # Other parameters like `max_triangle_edge_length` might be useful
-                    )
+                    # TIN interpolation might need different parameters depending on WBT version/specifics
+                    # Assuming basic usage here. Check WBT docs if needed.
+                    # It might use the vector contours directly.
+                    # Get max_triangle_edge_length from settings or use None (WBT default)
+                    max_triangle_edge_length = getattr(self.settings.processing, "dem_tin_max_triangle_edge_length", None)
+                    tin_args = {
+                        "i": str(input_path),
+                        "field": sanitized_elev_field,
+                        "output": str(dem_path),
+                        "resolution": cell_size, # Parameter name might differ
+                    }
+                    if max_triangle_edge_length is not None:
+                        tin_args["max_triangle_edge_length"] = max_triangle_edge_length
+                        logger.info(f"Using max_triangle_edge_length: {max_triangle_edge_length}")
+
+                    self.wbt.tin_gridding(**tin_args)
                     dem_generated = True
                     if dem_generated: self._assign_crs_to_raster(dem_path, self.settings.processing.output_crs_epsg)
                 elif interpolation_method == "idw":
@@ -242,10 +271,11 @@ class Elevation(FeatureBase):
                      return None, None # Exit if DEM failed
 
                 # --- Calculate Slope from DEM ---
-                logger.info(f"Calculating slope from {interpolation_method} DEM...")
+                logger.info(f"Calculating slope from {interpolation_method} DEM (Units: {slope_units})...")
                 self.wbt.slope(
                     dem=str(dem_path),
                     output=str(slope_path),
+                    units=slope_units # Explicitly pass units
                 )
                 # Assign CRS to the slope raster immediately after generation
                 self._assign_crs_to_raster(slope_path, self.settings.processing.output_crs_epsg)
