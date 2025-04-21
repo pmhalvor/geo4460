@@ -334,9 +334,10 @@ def display_raster_on_folium_map(
             data = src.read(1, masked=True) # Read first band as masked array
 
             # Verify the CRS before transforming
-            if not raster_crs or not raster_crs.is_valid:
+            # Updated check: Remove deprecated 'is_valid'
+            if not raster_crs:
                 logger.error(
-                    f"Folium Display: Invalid or missing CRS ({raster_crs}) read from {raster_path}. Cannot transform bounds accurately."
+                    f"Folium Display: Missing CRS ({raster_crs}) read from {raster_path}. Cannot transform bounds accurately."
                 )
                 return # Cannot proceed without valid CRS
             elif raster_crs.to_epsg() != target_crs_epsg:
