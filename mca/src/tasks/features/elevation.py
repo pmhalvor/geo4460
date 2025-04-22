@@ -555,11 +555,9 @@ class Elevation(FeatureBase):
 
 
 if __name__ == "__main__":
-    # Imports needed for standalone testing/execution
     from dask.distributed import Client, LocalCluster
-    from src.config import settings # Assuming settings is an instance of AppConfig
+    from src.config import settings 
     from whitebox import WhiteboxTools
-    # Import the NEW display function
     from src.utils import display_dem_slope_on_folium_map
 
     logger.info("--- Running elevation.py Standalone Test ---")
@@ -578,7 +576,7 @@ if __name__ == "__main__":
         try:
             wbt = WhiteboxTools()
             # Optional: Set verbosity, working dir etc. if needed for testing
-            # wbt.set_verbose_mode(settings.processing.wbt_verbose)
+            wbt.set_verbose_mode(settings.processing.wbt_verbose)
             # wbt.set_working_dir(str(settings.paths.project_root)) # Example
             logger.info("WhiteboxTools initialized.")
         except Exception as wbt_e:
@@ -630,15 +628,13 @@ if __name__ == "__main__":
                             # Define output path for the map
                             map_output_path = settings.paths.output_dir / f"{path_obj.stem}_map.html"
                             # Determine colormap based on file type
-                            cmap = 'terrain' if 'dem' in path_obj.stem.lower() else 'viridis' # Example logic
+                            cmap = 'terrain' if 'dem' in path_obj.stem.lower() else 'viridis' 
                             logger.info(f"  - Using colormap: {cmap}")
-                            # Call the NEW utility function to display the raster, including layer_name
                             display_dem_slope_on_folium_map(
-                                raster_path_str=str(path_obj), # Pass path as string
+                                raster_path_str=str(path_obj), 
                                 output_html_path_str=str(map_output_path),
                                 target_crs_epsg=settings.processing.output_crs_epsg,
                                 cmap_name=cmap,
-                                # Optional: Add layer name based on file stem
                                 layer_name=path_obj.stem
                             )
                             logger.info(f"  - Saved visualization map: {map_output_path}")

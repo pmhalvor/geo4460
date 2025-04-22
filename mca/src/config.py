@@ -189,7 +189,7 @@ class ProcessingConfig(BaseModel):
         "tin"
         # Method for interpolating segment points: 'idw', 'nn', 'tin', 'kriging' (broke)
     )
-    interpolation_method_dem: str = "idw"  # e.g. tin, idw, natural_neighbor
+    interpolation_method_dem: str = "tin"  # e.g. tin, idw, natural_neighbor
 
     # Feature Generation Settings
     segment_popularity_metrics: List[str] = Field(
