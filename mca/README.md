@@ -135,6 +135,11 @@ uv run python -m src.workflow
 <!-- TODO update with correct dataset names -->
 
 ## Helper functions
+Display info on rasters (tif layers)
+```bash
+gdalinfo output/mca_20250421_1749_heatmap/average_speed.tif
+```
+
 Display layers and fields of N50 Oslo GeoDataBase
 ```bash
 ogrinfo -so data/Basisdata_03_Oslo_25833_N50Kartdata_FGDB.gdb
@@ -143,7 +148,7 @@ ogrinfo -so data/Basisdata_03_Oslo_25833_N50Kartdata_FGDB.gdb
 ogrinfo -so data/Basisdata_03_Oslo_25833_N50Kartdata_FGDB.gdb "N50_Samferdsel_senterlinje"
 ```
 
-Display info on rasters (tif layers)
+Get unique values of a field in a layer
 ```bash
-gdalinfo output/mca_20250421_1749_heatmap/average_speed.tif
+ogrinfo -sql "SELECT DISTINCT typeveg FROM N50_Samferdsel_senterlinje" data/Basisdata_03_Oslo_25833_N50Kartdata_FGDB.gdb
 ```
