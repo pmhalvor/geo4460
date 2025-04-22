@@ -285,7 +285,7 @@ class Heatmap(FeatureBase):
     def _sample_points(self, points_gdf):
         """Samples a fraction of points from the GeoDataFrame."""
         sample_fraction = self.settings.processing.heatmap_sample_fraction
-        sample_seed = self.settings.processing.heatmap_sample_seed
+        sample_seed = self.settings.processing.seed
         logger.info(f"Sampling {sample_fraction*100:.0f}% of points for IDW input...")
         # Use settings from self.settings
         points_gdf_sampled = points_gdf.sample(
@@ -375,7 +375,7 @@ class Heatmap(FeatureBase):
             )
             train_gdf, test_gdf = train_test_split(
                 points_gdf_renamed,
-                train_size=self.settings.processing.heatmap_train_test_split,
+                train_size=self.settings.processing.train_test_split_fraction,
                 random_state=42,  # For reproducibility
             )
             logger.info(
@@ -572,20 +572,25 @@ class Heatmap(FeatureBase):
 
         # --- Data Preparation Pipeline ---
         points_gdf = self._convert_segments_to_points(self.gdf)
-        if points_gdf.empty: return None
+        if points_gdf.empty: 
+            return None
 
         points_gdf_sampled = self._sample_points(points_gdf)
-        if points_gdf_sampled.empty: return None
+        if points_gdf_sampled.empty: 
+            return None
 
         points_gdf_filtered = self._filter_points_by_boundary(points_gdf_sampled)
-        if points_gdf_filtered.empty: return None
+        if points_gdf_filtered.empty: 
+            return None
 
         train_gdf, test_gdf = self._split_train_test(points_gdf_filtered) # Corrected variable name
-        if train_gdf is None or test_gdf is None: return None # Check for split failure
+        if train_gdf is None or test_gdf is None: 
+            return None # Check for split failure
 
         # Prepare WBT input within a temporary directory context
         input_shp_path, temp_dir_obj, speed_field_shp = self._prepare_wbt_input(train_gdf)
-        if input_shp_path is None: return None # Check for preparation failure
+        if input_shp_path is None: 
+            return None # Check for preparation failure
 
         # --- Define Output Raster Path ---
         output_path_key = "average_speed_raster"

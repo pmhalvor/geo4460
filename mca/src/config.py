@@ -180,12 +180,16 @@ class ProcessingConfig(BaseModel):
     # General Raster Settings
     output_crs_epsg: int = 25833  # UTM Zone 33N for Oslo
     output_cell_size: float = 15.0  # Meters, adjust as needed
+    seed: int = 42  # Random seed for reproducibility
+    train_test_split_fraction: float = 0.8  # Fraction of data for training
+    
+    # Interpolation Settings
     interpolation_method_points: str = "idw"  # e.g., idw, kriging, natural_neighbor
     interpolation_method_polylines: str = (
         "tin"
         # Method for interpolating segment points: 'idw', 'nn', 'tin', 'kriging' (broke)
     )
-    interpolation_method_dem: str = "nn"  # e.g. tin, idw, natural_neighbor
+    interpolation_method_dem: str = "idw"  # e.g. tin, idw, natural_neighbor
 
     # Feature Generation Settings
     segment_popularity_metrics: List[str] = Field(
@@ -212,9 +216,6 @@ class ProcessingConfig(BaseModel):
         default=5.0, description="Optional buffer for road/lane matching (meters)"
     )  # TODO remove if not used
     slope_units: str = "degrees"  # 'degrees' or 'percent'
-    dem_tin_max_triangle_edge_length: Optional[float] = Field(
-        default=200.0, description="Maximum edge length for TIN triangles (meters). None for WBT default."
-    )
 
     # Heatmap (Average Speed) IDW Settings
     heatmap_idw_cell_size: float = 10.0  # Cell size for the output raster (meters)
@@ -224,8 +225,13 @@ class ProcessingConfig(BaseModel):
     heatmap_sample_fraction: float = (
         0.5  # Fraction of speed points to build raster from
     )
-    heatmap_sample_seed: int = 42  # Random seed for reproducibility
-    heatmap_train_test_split: float = 0.8  # Fraction of data for training
+
+    # Elevation settings 
+    dem_idw_weight: float = 1.0  # Weight parameter for IDW
+    dem_idw_radius: float = 500.0  # Search radius for IDW (meters)
+    dem_idw_min_points: int = 5  # Minimum number of points required within radius
+    dem_tin_max_triangle_edge_length: float = 1000.0  # Meters
+
 
     # Kriging specific parameters (if used for popularity)
     kriging_model: str = "spherical"  # e.g., spherical, exponential, gaussian

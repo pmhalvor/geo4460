@@ -425,3 +425,161 @@ def display_raster_on_folium_map(
         logger.error(f"Error opening or reading raster file {raster_path}: {rio_e}", exc_info=True)
     except Exception as map_e:
         logger.error(f"Error generating Folium map for {raster_path}: {map_e}", exc_info=True)
+
+
+def display_dem_slope_on_folium_map(
+    raster_path_str: str,
+    output_html_path_str: str,
+    target_crs_epsg: int,
+    layer_name: Optional[str] = None, # Added layer_name parameter
+    nodata_transparent: bool = True,
+    cmap_name: str = 'viridis',
+    opacity: float = 0.7,
+    zoom_start: int = 12,
+    tiles: str = 'CartoDB positron',
+):
+    """
+    Displays a DEM or Slope raster layer on a Folium map and saves it as an HTML file.
+    Allows specifying a layer name for the overlay.
+
+    Args:
+        raster_path_str (str): Path to the input raster file.
+        output_html_path_str (str): Path to save the output HTML map.
+        target_crs_epsg (int): The expected EPSG code of the input raster's CRS.
+                               Used for verification and bounds transformation.
+        layer_name (Optional[str]): Name for the raster layer in the LayerControl.
+                                    Defaults to the raster filename stem if None.
+        nodata_transparent (bool): Whether to make NoData pixels transparent. Defaults to True.
+        cmap_name (str): Name of the matplotlib colormap to use. Defaults to 'viridis'.
+        opacity (float): Opacity of the raster layer (0.0 to 1.0). Defaults to 0.7.
+        zoom_start (int): Initial zoom level for the map. Defaults to 12.
+        tiles (str): Folium tile layer name. Defaults to 'CartoDB positron'.
+    """
+    # Import necessary libraries here to avoid top-level dependency
+    try:
+        import folium
+        import rasterio
+        import rasterio.warp
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as colors
+        import io
+        import base64
+        from pathlib import Path
+    except ImportError as e:
+        logger.error(f"Folium display skipped: Missing required library ({e}). Install folium, matplotlib, rasterio.")
+        return
+
+    raster_path = Path(raster_path_str)
+    output_html_path = Path(output_html_path_str)
+    output_html_path.parent.mkdir(parents=True, exist_ok=True) # Ensure output dir exists
+
+    # Use filename stem as default layer name if not provided
+    if layer_name is None:
+        layer_name = raster_path.stem
+        logger.info(f"Layer name not provided, using default: {layer_name}")
+
+    logger.info(f"Attempting to display raster: {raster_path} as layer '{layer_name}' on Folium map.")
+
+    if not raster_path.is_file():
+        logger.error(f"Raster file not found: {raster_path}")
+        return
+
+    try:
+        with rasterio.open(raster_path) as src:
+            bounds = src.bounds
+            raster_crs = src.crs
+            logger.info(f"Folium Display: Raster CRS read from file: {raster_crs}")
+            data = src.read(1, masked=True) # Read first band as masked array
+
+            # Verify the CRS before transforming
+            if not raster_crs:
+                logger.error(
+                    f"Folium Display: Missing CRS ({raster_crs}) read from {raster_path}. Cannot transform bounds accurately."
+                )
+                return # Cannot proceed without valid CRS
+            elif raster_crs.to_epsg() != target_crs_epsg:
+                 logger.warning(
+                    f"Folium Display: CRS read from raster ({raster_crs}) does not match expected EPSG:{target_crs_epsg}. Transformation might be incorrect."
+                )
+                # Proceed with caution
+
+            # Transform bounds to WGS84 (EPSG:4326) for Folium
+            logger.info(f"Folium Display: Original bounds ({raster_crs}): {bounds}")
+            bounds_4326 = None
+            try:
+                bounds_4326 = rasterio.warp.transform_bounds(
+                    raster_crs, "EPSG:4326", *bounds # left, bottom, right, top
+                )
+                logger.info(f"Folium Display: Transformed bounds (EPSG:4326): {bounds_4326}")
+            except Exception as warp_e:
+                logger.error(f"Folium Display: Error during bounds transformation: {warp_e}", exc_info=True)
+                return # Cannot proceed without transformed bounds
+
+            # Prepare data for image overlay
+            cmap = plt.get_cmap(cmap_name) # Use argument
+            valid_data = data.compressed() # Get only valid (unmasked) data
+            rgba_data_calc = None
+            if valid_data.size > 0:
+                # Normalize based on valid data range (e.g., 5th to 95th percentile for better contrast)
+                vmin = np.percentile(valid_data, 5)
+                vmax = np.percentile(valid_data, 95)
+                # Handle case where vmin == vmax (e.g., constant raster)
+                if vmin == vmax:
+                    norm = colors.Normalize(vmin=vmin - 1e-6, vmax=vmax + 1e-6) # Avoid division by zero
+                else:
+                    norm = colors.Normalize(vmin=vmin, vmax=vmax)
+
+                rgba_data_calc = cmap(norm(data), bytes=True) # Apply colormap
+
+                # Make masked pixels transparent if requested
+                if nodata_transparent and data.mask.any():
+                    rgba_data_calc[data.mask] = (0, 0, 0, 0)
+            else:
+                logger.warning("Raster data contains no valid pixels. Cannot create image overlay.")
+                return # Cannot create overlay without data
+
+            # Check if we have valid pixel data (rgba_data_calc) and transformed bounds
+            if rgba_data_calc is not None and bounds_4326 is not None:
+                map_bounds_folium = [
+                    [bounds_4326[1], bounds_4326[0]], # SouthWest (lat, lon)
+                    [bounds_4326[3], bounds_4326[2]], # NorthEast (lat, lon)
+                ]
+                center_lat = (bounds_4326[1] + bounds_4326[3]) / 2
+                center_lon = (bounds_4326[0] + bounds_4326[2]) / 2
+
+                # Save RGBA data to a PNG in memory
+                buf = io.BytesIO()
+                plt.imsave(buf, rgba_data_calc, format="png")
+                buf.seek(0)
+                png_base64 = base64.b64encode(buf.read()).decode("utf-8")
+                img_uri = f"data:image/png;base64,{png_base64}"
+
+                # Create Folium map
+                m = folium.Map(
+                    location=[center_lat, center_lon],
+                    zoom_start=zoom_start, # Use argument
+                    tiles=tiles, # Use argument
+                )
+
+                # Add raster as ImageOverlay using the provided layer_name
+                img_overlay = folium.raster_layers.ImageOverlay(
+                    image=img_uri,
+                    bounds=map_bounds_folium,
+                    opacity=opacity, # Use argument
+                    name=layer_name, # Use the layer_name parameter here
+                )
+                img_overlay.add_to(m)
+                folium.LayerControl().add_to(m)
+
+                # Save map
+                m.save(str(output_html_path))
+                logger.info(f"Folium map with raster layer '{layer_name}' saved to: {output_html_path}")
+            else:
+                # This condition should ideally be caught earlier
+                logger.warning("Skipping Folium map generation due to missing data or bounds.")
+
+    except rasterio.RasterioIOError as rio_e:
+        logger.error(f"Error opening or reading raster file {raster_path}: {rio_e}", exc_info=True)
+    except Exception as map_e:
+        logger.error(f"Error generating Folium map for {raster_path}: {map_e}", exc_info=True)
