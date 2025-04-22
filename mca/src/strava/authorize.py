@@ -100,8 +100,6 @@ def exchange_code_for_token(auth_code):
 
 
 def get_token():
-    print(f"Getting token from {TOKEN_PATH}...")
-
     if not os.path.exists(TOKEN_PATH):
         authorize()
 

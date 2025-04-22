@@ -92,7 +92,7 @@ def explore_segments(
         return response.json()
     else:
         print(f"Failed to explore segments: {response.status_code} {response.text}")
-        return None
+        return response.status_code
 
 
 def get_athlete_activities(per_page=100):

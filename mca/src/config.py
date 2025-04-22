@@ -55,6 +55,32 @@ class PathsConfig(BaseModel):
         default_factory=lambda: BASE_DIR / "data" / "activity_details",
         description="Directory activity details stored at after collection",
     )
+    # Input for the non-bike-laned roads to segment collection script
+    diff_layer_gpkg: Path = Field(
+        # Example path, user should verify or update this default if needed
+        default_factory=lambda: BASE_DIR
+        / "output"
+        / "mca_20250422_2038" # TODO: Make this dynamic or user-configurable?
+        / "prepared_roads_all_diff_lanes.gpkg", 
+        # / "prepared_roads_simple_diff_lanes.gpkg",  # Alternative
+        description="Path to the difference layer (e.g., roads minus bike lanes) used for sampling points.",
+    )
+    # Intermediate/Output files for the new segment collection script
+    remaining_search_points_gpkg: Path = Field(
+        default_factory=lambda: BASE_DIR
+        / "data"
+        / "segments"
+        / "road_diff_remaining_search_points.gpkg",
+        description="GeoPackage storing points sampled from the diff layer that still need to be searched.",
+    )
+    collected_segments_gpkg: Path = Field(
+        default_factory=lambda: BASE_DIR
+        / "data"
+        / "segments"
+        / "collected_segments_from_diff.gpkg",
+        description="GeoPackage storing segments collected via API calls based on the diff layer points.",
+    )
+
 
     # Ensure directories exist or create them if needed
     def __init__(self, **data):
@@ -210,7 +236,20 @@ class ProcessingConfig(BaseModel):
     segment_popularity_tin_max_triangle_edge_length: float = 100.0  # Meters
     segment_popularity_buffer_distance: float = 5.0  # Meters, for vector output
     segment_age_calculation_method: str = "days"  # 'days', 'years'
-    strava_api_request_delay: float = 0.05
+    strava_api_request_delay: float = 0.05 # Base delay between successful requests
+    segment_collection_sample_size: int = Field(
+        default=500,
+        description="Number of points to sample and search in each run of the collection script.",
+    )
+    segment_collection_retry_delay: float = Field(
+        default=190.0, # Seconds (190 = 3 minutes + 10 seconds)
+        description="Delay in seconds after hitting a Strava API rate limit (429 error).",
+    )
+    segment_collection_max_retries: int = Field(
+        default=0,
+        description="Maximum number of retries after hitting a rate limit before giving up on a point.",
+    )
+
 
     traffic_buffer_distance: float = 500.0  # Meters, for buffering traffic stations
     traffic_interpolation_power: float = 2.0  # For IDW interpolation
