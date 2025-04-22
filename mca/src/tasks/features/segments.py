@@ -35,148 +35,185 @@ class Segments(FeatureBase):
 
     def load_data(self):
         """
-        Loads initial segment data, fetches details from Strava API (using CSV cache),
+        Loads segment data from GeoJSON and GeoPackage segments,
+        combines them, fetches details from Strava API (using CSV cache),
         decodes polylines, calculates age/metrics, and saves the preprocessed data.
         """
-        logger.info("Loading and preprocessing Strava segments...")
-        initial_gdf = load_vector_data(self.settings.paths.strava_segments_geojson)
+        logger.info("Loading and preprocessing Strava segments from multiple sources...")
         segment_id_field = self.settings.input_data.segment_id_field
+        target_crs = f"EPSG:{self.settings.processing.output_crs_epsg}"
 
-        if segment_id_field not in initial_gdf.columns:
-            raise ValueError(
-                f"Segment ID field '{segment_id_field}' not found in {self.settings.paths.strava_segments_geojson}"
-            )
+        # --- Load Original GeoJSON ---
+        logger.info(f"Loading original segments from: {self.settings.paths.strava_segments_geojson}")
+        geojson_gdf = load_vector_data(self.settings.paths.strava_segments_geojson)
+        if geojson_gdf is not None:
+            if segment_id_field not in geojson_gdf.columns:
+                 logger.warning(f"Segment ID field '{segment_id_field}' not found in {self.settings.paths.strava_segments_geojson}. Skipping this source.")
+                 geojson_gdf = None
+            else:
+                 # Ensure correct CRS
+                 geojson_gdf = self._reproject_if_needed(geojson_gdf)
+                 logger.info(f"Loaded {len(geojson_gdf)} original segments.")
+        else:
+            logger.warning(f"Could not load original segments from {self.settings.paths.strava_segments_geojson}")
+
+        # --- Load Newly Collected GeoPackage ---
+        logger.info(f"Loading newly collected segments from: {self.settings.paths.collected_segments_gpkg}")
+        gpkg_gdf = load_vector_data(self.settings.paths.collected_segments_gpkg) # Uses the utility function
+        if gpkg_gdf is not None:
+            if segment_id_field not in gpkg_gdf.columns:
+                 logger.warning(f"Segment ID field '{segment_id_field}' not found in {self.settings.paths.collected_segments_gpkg}. Skipping this source.")
+                 gpkg_gdf = None
+            else:
+                 # Ensure correct CRS
+                 gpkg_gdf = self._reproject_if_needed(gpkg_gdf)
+                 logger.info(f"Loaded {len(gpkg_gdf)} newly collected segments.")
+        else:
+            logger.warning(f"Could not load collected segments from {self.settings.paths.collected_segments_gpkg}")
+
+
+        # --- Combine Data ---
+        if geojson_gdf is not None and gpkg_gdf is not None:
+            logger.info("Combining original and collected segments...")
+            # Concatenate, aligning columns (NaNs for missing)
+            combined_gdf = pd.concat([geojson_gdf, gpkg_gdf], ignore_index=True, sort=False)
+            # Drop duplicates based on segment ID, keeping the last entry (collected potentially newer, though unlikely in current setup)
+            combined_gdf = combined_gdf.drop_duplicates(subset=[segment_id_field], keep='last')
+            logger.info(f"Combined data has {len(combined_gdf)} unique segments.")
+        elif geojson_gdf is not None:
+            logger.info("Using only original segments.")
+            combined_gdf = geojson_gdf
+        elif gpkg_gdf is not None:
+            logger.info("Using only newly collected segments.")
+            combined_gdf = gpkg_gdf
+        else:
+            logger.error("No segment data could be loaded from either source. Cannot proceed.")
+            self.gdf = None
+            return # Exit load_data
+
+        initial_gdf = combined_gdf # Now initial_gdf contains the combined, unique segments
 
         # --- API Fetching and Caching (CSV) ---
+        # This part now works on the combined list of unique segment IDs
         segment_details_cache_df, cache_cols = self._fetch_and_cache_segment_details(
-            initial_gdf
+            initial_gdf # Pass the combined GDF
         )
 
         # --- Merge fetched/cached details with initial GeoDataFrame ---
-        cols_to_drop_from_initial = [
+        # We merge onto the 'initial_gdf' which now holds the combined data
+        cols_to_drop_before_merge = [
             col
-            for col in cache_cols
-            if col != segment_id_field and col in initial_gdf.columns
+            for col in cache_cols # Columns fetched/cached
+            if col != segment_id_field and col in initial_gdf.columns # If they already exist in combined GDF (avoid duplication)
         ]
         initial_gdf_clean = initial_gdf.drop(
-            columns=cols_to_drop_from_initial, errors="ignore"
+            columns=cols_to_drop_before_merge, errors="ignore"
         )
 
         if not segment_details_cache_df.empty:
-            try:
-                initial_gdf_clean[segment_id_field] = initial_gdf_clean[
-                    segment_id_field
-                ].astype(segment_details_cache_df[segment_id_field].dtype)
-            except Exception as e:
-                logger.warning(
-                    f"Could not align ID types for merge: {e}. Merge might fail or produce unexpected results."
-                )
-            details_to_merge = segment_details_cache_df[cache_cols]
-            merged_gdf = pd.merge(
-                initial_gdf_clean, details_to_merge, on=segment_id_field, how="left"
-            )
-        else:
-            logger.warning(
-                "Segment details cache is empty. Proceeding without detailed attributes."
-            )
-            merged_gdf = initial_gdf_clean
-            for col in cache_cols:
-                if col != segment_id_field and col not in merged_gdf.columns:
-                    merged_gdf[col] = np.nan
+             # Ensure ID types match for merging
+             try:
+                 initial_gdf_clean[segment_id_field] = initial_gdf_clean[segment_id_field].astype(segment_details_cache_df[segment_id_field].dtype)
+             except Exception as e:
+                 logger.warning(f"Could not align ID types for merge: {e}. Merge might fail or produce unexpected results.")
 
+             details_to_merge = segment_details_cache_df[cache_cols]
+             # Perform the merge
+             merged_gdf = pd.merge(
+                 initial_gdf_clean,
+                 details_to_merge,
+                 on=segment_id_field,
+                 how="left" # Keep all segments from combined GDF, add details where available
+             )
+             logger.info(f"Merged details from cache/API onto {len(merged_gdf)} segments.")
+        else:
+             logger.warning("Segment details cache is empty. Proceeding without detailed attributes from cache/API.")
+             merged_gdf = initial_gdf_clean # Use the combined GDF as is
+             # Add empty columns for details if they don't exist
+             for col in cache_cols:
+                 if col != segment_id_field and col not in merged_gdf.columns:
+                     merged_gdf[col] = np.nan
+
+        # Check for missing details after merge
         created_at_field = self.settings.input_data.segment_created_at_field
         if created_at_field in merged_gdf.columns:
-            missing_details_count = merged_gdf[created_at_field].isna().sum()
-            if missing_details_count > 0:
-                logger.warning(
-                    f"{missing_details_count} segments are missing details ({created_at_field} is null) after cache/API fetch."
-                )
+             missing_details_count = merged_gdf[created_at_field].isna().sum()
+             if missing_details_count > 0:
+                 logger.warning(f"{missing_details_count} segments are missing details ({created_at_field} is null) after cache/API fetch.")
         else:
-            logger.warning(
-                f"'{created_at_field}' column not found after merge, cannot check for missing details."
-            )
+             logger.warning(f"'{created_at_field}' column not found after merge, cannot check for missing details.")
 
-        # --- Decode Polylines and Create Geometry ---
-        logger.info("Decoding polylines (if necessary)...")
+
+        # --- Decode Polylines and Create/Validate Geometry ---
+        logger.info("Decoding polylines and validating/creating geometry...")
         geometries = []
         polyline_field = self.settings.input_data.segment_polyline_field
-        has_geometry_col = "geometry" in merged_gdf.columns
+        has_geometry_col = 'geometry' in merged_gdf.columns and not merged_gdf['geometry'].isnull().all()
 
         for index, row in merged_gdf.iterrows():
-            encoded_polyline = None
-            if (
-                has_geometry_col
-                and row["geometry"] is not None
-                and hasattr(row["geometry"], "geom_type")
-            ):
-                geometries.append(row["geometry"])
+            # Priority 1: Use existing valid geometry if present
+            if has_geometry_col and isinstance(row['geometry'], LineString) and not row['geometry'].is_empty:
+                geometries.append(row['geometry'])
                 continue
-            if (
-                "map" in row
-                and isinstance(row["map"], dict)
-                and polyline_field in row["map"]
-            ):
-                encoded_polyline = row["map"][polyline_field]
+
+            # Priority 2: Decode polyline if available
+            encoded_polyline = None
+            # Check within 'map' dictionary first (common in Strava API responses)
+            if 'map' in row and isinstance(row['map'], dict) and polyline_field in row['map']:
+                encoded_polyline = row['map'][polyline_field]
+            # Check for a direct 'polyline' column
             elif polyline_field in row and pd.notna(row[polyline_field]):
                 encoded_polyline = row[polyline_field]
 
             if encoded_polyline:
                 try:
+                    # Decode using the polyline library
                     decoded_coords = polyline.decode(encoded_polyline)
+                    # Strava uses (lat, lon), Shapely uses (lon, lat)
                     lon_lat_coords = [(lon, lat) for lat, lon in decoded_coords]
                     if len(lon_lat_coords) >= 2:
                         geometries.append(LineString(lon_lat_coords))
+                        continue # Successfully created geometry from polyline
                     else:
-                        geometries.append(None)
-                        logger.warning(
-                            f"Segment {row.get(segment_id_field, index)}: Decoded polyline has < 2 points."
-                        )
+                        logger.warning(f"Segment {row.get(segment_id_field, index)}: Decoded polyline has < 2 points.")
                 except Exception as e:
-                    logger.warning(
-                        f"Segment {row.get(segment_id_field, index)}: Failed to decode polyline '{encoded_polyline}': {e}"
-                    )
-                    geometries.append(None)
-            else:
-                if not (
-                    has_geometry_col
-                    and row["geometry"] is not None
-                    and hasattr(row["geometry"], "geom_type")
-                ):
-                    logger.warning(
-                        f"Segment {row.get(segment_id_field, index)}: Missing polyline data and no existing geometry."
-                    )
-                geometries.append(None)
+                    logger.warning(f"Segment {row.get(segment_id_field, index)}: Failed to decode polyline '{encoded_polyline}': {e}")
 
-        cols_to_drop_final = ["map", polyline_field]
+            # If we reach here, geometry is missing or polyline decoding failed/was absent
+            geometries.append(None)
+            logger.debug(f"Segment {row.get(segment_id_field, index)}: Could not establish valid geometry.")
+
+
+        # Create the final GeoDataFrame
+        # Drop original geometry/map/polyline columns before assigning the new geometry list
+        cols_to_drop_final = ['map', polyline_field]
         if has_geometry_col:
-            cols_to_drop_final.append("geometry")
+             cols_to_drop_final.append('geometry')
+
         self.gdf = gpd.GeoDataFrame(
-            merged_gdf.drop(columns=cols_to_drop_final, errors="ignore"),
+            merged_gdf.drop(columns=cols_to_drop_final, errors='ignore'),
             geometry=geometries,
+            crs="EPSG:4326" # Assume decoded polylines are WGS84
         )
-        if not has_geometry_col or not initial_gdf.crs:
-            self.gdf.crs = "EPSG:4326"
-        else:
-            self.gdf.crs = initial_gdf.crs
 
+        # --- Final Cleanup and Reprojection ---
         original_len = len(self.gdf)
-        required_detail_cols = [created_at_field]
-        cols_to_check = ["geometry"] + [
-            col for col in required_detail_cols if col in self.gdf.columns
-        ]
+        # Drop rows where geometry could not be established or essential details are missing
+        required_detail_cols = [created_at_field] # Add other essential cols if needed
+        cols_to_check = ['geometry'] + [col for col in required_detail_cols if col in self.gdf.columns]
         self.gdf = self.gdf.dropna(subset=cols_to_check)
+        # Ensure geometry is valid
         self.gdf = self.gdf[self.gdf.geometry.is_valid & ~self.gdf.geometry.is_empty]
-        if len(self.gdf) < original_len:
-            logger.warning(
-                f"Dropped {original_len - len(self.gdf)} segments due to invalid geometry or missing essential details."
-            )
-        if self.gdf.empty:
-            logger.error(
-                "No valid segments remaining after loading and detail fetching."
-            )
-            self.gdf = None
-            return
 
+        if len(self.gdf) < original_len:
+            logger.warning(f"Dropped {original_len - len(self.gdf)} segments due to invalid/missing geometry or missing essential details.")
+
+        if self.gdf.empty:
+            logger.error("No valid segments remaining after geometry processing and cleanup.")
+            self.gdf = None
+            return # Exit load_data
+
+        # Reproject to the target CRS for the project
         self.gdf = self._reproject_if_needed(self.gdf)
 
         # --- Preprocessing Steps (Age and Metrics) ---
@@ -311,7 +348,7 @@ class Segments(FeatureBase):
                 # --- DEV ONLY ---
                 # TODO Remove this block
                 i += 1
-                if i > 5:
+                if i > 50:
                     logger.info("DEV ONLY: Skipping rest of detail fetching.")
                     break
                 # ----------------
