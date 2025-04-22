@@ -90,8 +90,10 @@ class InputDataConfig(BaseModel):
 
     # N50
     n50_land_cover_layer: str = "N50_Arealdekke_omrade"  # omrade or grense works
-    n50_roads_layer: str = "veg_veglenke"  # TODO update w/ correct field name
-    n50_bike_lanes_layer: str = "veg_sykkelveg"  # TODO update w/ correct field name
+    n50_samferdsel_layer: str = "N50_Samferdsel_senterlinje"
+    n50_samferdsel_typeveg_field: str = "typeveg" # Field name for road type
+    n50_typeveg_bike_lane: str = "gangOgSykkelveg" # Value for bike lanes
+    n50_typeveg_road_simple: str = "enkelBilveg" # Value for simple car roads
     n50_contour_layer: str = "N50_Høyde_senterlinje"
     n50_contour_elevation_field: str = "hoyde"
 
@@ -127,9 +129,11 @@ class OutputFilesConfig(BaseModel):
     prepared_activities_gpkg: str = "prepared_activities.gpkg"  # not used TODO remove
     prepared_activity_splits_gpkg: str = "prepared_activity_splits.gpkg"
     prepared_traffic_points_gpkg: str = "prepared_traffic_points.gpkg"
-    prepared_roads_gpkg: str = "prepared_roads.gpkg"  # From N50
-    prepared_bike_lanes_gpkg: str = "prepared_bike_lanes.gpkg"  # From N50
-    prepared_roads_no_lanes_gpkg: str = "prepared_roads_no_lanes.gpkg"
+    prepared_roads_gpkg: str = "prepared_roads_all_samferdsel.gpkg"  # From N50 Samferdsel
+    prepared_bike_lanes_filtered_gpkg: str = "prepared_bike_lanes_filtered.gpkg" # Filtered from Samferdsel
+    prepared_roads_simple_filtered_gpkg: str = "prepared_roads_simple_filtered.gpkg" # Filtered from Samferdsel
+    prepared_roads_simple_diff_lanes_gpkg: str = "prepared_roads_simple_diff_lanes.gpkg" # Difference: simple roads - bike lanes
+    prepared_roads_all_diff_lanes_gpkg: str = "prepared_roads_all_diff_lanes.gpkg" # Difference: all roads - bike lanes
     prepared_contours_gpkg: str = "prepared_contours.gpkg"  # From N50
 
     # Feature Rasters
@@ -150,8 +154,6 @@ class OutputFilesConfig(BaseModel):
 
     # Intermediate Files (optional, for debugging)
     buffered_traffic_stations_gpkg: str = "buffered_traffic_stations.gpkg"
-    reclassified_roads_gpkg: str = "reclassified_roads.gpkg"
-    reclassified_bike_lanes_gpkg: str = "reclassified_bike_lanes.gpkg"
 
     # Combined Features / Overlays (Vector or Raster)
     overlay_a_gpkg: str = "overlay_A_popular_no_lanes.gpkg"
