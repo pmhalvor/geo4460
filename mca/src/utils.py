@@ -5,6 +5,7 @@ from typing import Optional, Union, Tuple
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd # Add pandas import
 import rasterio
 from pyproj import CRS
 from shapely.geometry import Point
@@ -210,8 +211,23 @@ def reproject_gdf(
         logger.info(
             f"Reprojecting GeoDataFrame from {gdf.crs} to {target_crs_obj.to_string()}"
         )
+
+        # --- Validity Check Before Reprojection ---
+        valid_before = gdf.geometry.is_valid
+        num_valid_before = valid_before.sum()
+        num_total_before = len(gdf)
+        logger.info(f"Validity before reprojection: {num_valid_before}/{num_total_before} valid.")
+        if num_valid_before < num_total_before:
+            invalid_indices_before = gdf[~valid_before].index.tolist()
+            logger.warning(f"Indices invalid BEFORE reprojection: {invalid_indices_before[:10]}...") # Log first 10
+        # --- End Check ---
+
         gdf_reprojected = gdf.to_crs(target_crs_obj)
         logger.info("Reprojection complete.")
+        # Basic validity check after reprojection (optional, can be done in calling function)
+        # num_invalid_after = (~gdf_reprojected.geometry.is_valid).sum()
+        # if num_invalid_after > 0:
+        #     logger.warning(f"{num_invalid_after} geometries became invalid during reprojection to {target_crs_obj.to_string()}.")
         return gdf_reprojected
     except Exception as e:
         logger.error(f"Error during reprojection to {target_crs}: {e}")
@@ -425,6 +441,229 @@ def display_raster_on_folium_map(
         logger.error(f"Error opening or reading raster file {raster_path}: {rio_e}", exc_info=True)
     except Exception as map_e:
         logger.error(f"Error generating Folium map for {raster_path}: {map_e}", exc_info=True)
+
+
+def display_vectors_on_folium_map(
+    gdf: gpd.GeoDataFrame,
+    output_html_path_str: str,
+    style_column: Optional[str] = None,
+    cmap_name: str = 'viridis',
+    line_weight: int = 3,
+    point_radius: int = 5,
+    tooltip_columns: Optional[list] = None,
+    popup_columns: Optional[list] = None,
+    zoom_start: int = 12,
+    tiles: str = 'CartoDB positron',
+):
+    """
+    Displays vector features (Points, Lines) from a GeoDataFrame on a Folium map,
+    optionally styling them based on a numeric column, and saves it as an HTML file.
+
+    Args:
+        gdf (gpd.GeoDataFrame): Input GeoDataFrame with vector features.
+        output_html_path_str (str): Path to save the output HTML map.
+        style_column (Optional[str]): Name of the numeric column to use for styling
+                                      (color intensity). If None, uses default color.
+        cmap_name (str): Name of the matplotlib colormap to use if styling. Defaults to 'viridis'.
+        line_weight (int): Weight (thickness) for LineString features. Defaults to 3.
+        point_radius (int): Radius for Point features. Defaults to 5.
+        tooltip_columns (Optional[list]): List of column names to show in tooltips.
+        popup_columns (Optional[list]): List of column names to show in popups.
+        zoom_start (int): Initial zoom level for the map. Defaults to 12.
+        tiles (str): Folium tile layer name. Defaults to 'CartoDB positron'.
+    """
+    # Import necessary libraries here
+    try:
+        import folium
+        import matplotlib.cm as cm
+        import matplotlib.colors as colors
+        from branca.colormap import LinearColormap # Direct import for color legend
+        from pathlib import Path
+    except ImportError as e:
+        logger.error(f"Folium display skipped: Missing required library ({e}). Install folium, matplotlib, branca.")
+        return
+
+    output_html_path = Path(output_html_path_str)
+    output_html_path.parent.mkdir(parents=True, exist_ok=True) # Ensure output dir exists
+
+    logger.info(f"Attempting to display {len(gdf)} vector features on Folium map.")
+
+    if gdf.empty:
+        logger.warning("Input GeoDataFrame is empty. Cannot create map.")
+        return
+
+    # Ensure data is in WGS84 (EPSG:4326) for Folium
+    try:
+        if gdf.crs is None:
+            raise ValueError("Input GeoDataFrame has no CRS defined.")
+        if gdf.crs.to_epsg() != 4326:
+            logger.info(f"Reprojecting vector data from {gdf.crs} to EPSG:4326 for Folium.")
+            gdf_4326 = gdf.to_crs(epsg=4326)
+        else:
+            gdf_4326 = gdf.copy() # Work on a copy
+    except Exception as reproj_e:
+        logger.error(f"Error reprojecting GeoDataFrame to EPSG:4326: {reproj_e}", exc_info=True)
+        return
+
+    logger.info(f"GDF shape after reprojection: {gdf_4326.shape}") # Log shape after reprojection
+
+    # --- Log geometry status immediately after reprojection ---
+    num_null_after_reproj = gdf_4326["geometry"].isna().sum()
+    num_empty_after_reproj = gdf_4326.geometry.is_empty.sum()
+    logger.info(f"Post-reprojection check: Null geometries = {num_null_after_reproj}, Empty geometries = {num_empty_after_reproj}")
+    # --- End logging ---
+
+
+    # --- Attempt to fix potential validity issues with buffer(0) ---
+    try:
+        original_count = len(gdf_4326)
+        invalid_mask = ~gdf_4326.geometry.is_valid
+        num_invalid = invalid_mask.sum()
+        logger.info(f"Found {num_invalid} invalid geometries after reprojection (out of {original_count}).")
+
+        if num_invalid > 0:
+            logger.info(f"Attempting to fix {num_invalid} invalid geometries with buffer(0).")
+            # Apply buffer(0) only to invalid geometries
+            gdf_4326.loc[invalid_mask, 'geometry'] = gdf_4326.loc[invalid_mask].geometry.buffer(0)
+            logger.info(f"Applied buffer(0) to {num_invalid} geometries.")
+            logger.info(f"Shape after buffer(0): {gdf_4326.shape}")
+
+            # Re-check validity after buffering
+            fixed_mask = gdf_4326.loc[invalid_mask].geometry.is_valid
+            num_fixed = fixed_mask.sum()
+            num_still_invalid = num_invalid - num_fixed
+            if num_still_invalid > 0:
+                 logger.warning(f"{num_still_invalid} geometries remain invalid after buffer(0).")
+
+        # Check if any geometries became None/empty after buffer(0) or were initially null
+        null_empty_mask = gdf_4326["geometry"].isna() | gdf_4326.geometry.is_empty
+        num_null_empty = null_empty_mask.sum()
+
+        if num_null_empty > 0:
+            logger.warning(f"{num_null_empty} geometries are null or empty after processing. Removing them.")
+            gdf_4326 = gdf_4326[~null_empty_mask]
+
+        logger.info(f"Shape after buffer(0) and null/empty removal: {gdf_4326.shape}")
+
+    except Exception as buffer_e:
+        logger.warning(f"Error during geometry fixing with buffer(0): {buffer_e}. Proceeding cautiously.")
+        # Ensure we still drop obviously bad geometries before proceeding
+        gdf_4326 = gdf_4326.dropna(subset=["geometry"])
+        gdf_4326 = gdf_4326[~gdf_4326.geometry.is_empty]
+
+
+    # --- Ensure valid geometries before calculating bounds ---
+    # Drop rows with invalid or missing geometries *after* reprojection and fixing attempts
+    # Re-check validity on the potentially modified gdf_4326
+    gdf_4326_validated = gdf_4326[gdf_4326.geometry.is_valid].copy() # Use copy to avoid SettingWithCopyWarning later
+
+    logger.info(f"GDF shape after geometry validation (is_valid check): {gdf_4326_validated.shape}") # Log shape after validation
+
+    if gdf_4326_validated.empty:
+        logger.warning("GeoDataFrame is empty after reprojection and geometry validation. Cannot create map.")
+        return
+
+    # --- Calculate map center and bounds ---
+    # Use the validated GDF
+    bounds = gdf_4326_validated.total_bounds # minx, miny, maxx, maxy
+
+    # --- Check for invalid bounds ---
+    if np.isnan(bounds).any() or np.isinf(bounds).any():
+        logger.error(f"Invalid bounds calculated after reprojection: {bounds}. Cannot create map.")
+        # Attempt to use a default location if bounds fail? Or just return.
+        # For now, just return to avoid the NaN error in folium.Map
+        return
+
+    center_lat = (bounds[1] + bounds[3]) / 2
+    center_lon = (bounds[0] + bounds[2]) / 2
+
+    # --- Create Folium map ---
+    # Check if center coordinates are valid just in case
+    if pd.isna(center_lat) or pd.isna(center_lon):
+         logger.error(f"Calculated center coordinates are NaN ({center_lat}, {center_lon}). Cannot create map.")
+         return
+
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=zoom_start,
+        tiles=tiles,
+    )
+
+    # Prepare styling
+    colormap = None
+    norm = None
+    # Use the validated GDF for styling checks
+    if style_column and style_column in gdf_4326_validated.columns and pd.api.types.is_numeric_dtype(gdf_4326_validated[style_column]):
+        try:
+            values = gdf_4326_validated[style_column].dropna()
+            if not values.empty:
+                vmin = values.min()
+                vmax = values.max()
+                if vmin == vmax: # Handle constant value case
+                    vmin -= 0.5
+                    vmax += 0.5
+                norm = colors.Normalize(vmin=vmin, vmax=vmax)
+                cmap = cm.get_cmap(cmap_name)
+                # Create a colormap for the legend using the directly imported class
+                colormap = LinearColormap(
+                    [colors.rgb2hex(cmap(norm(i))) for i in np.linspace(vmin, vmax, num=10)],
+                    vmin=vmin, vmax=vmax,
+                    caption=f"{style_column} Intensity"
+                )
+                m.add_child(colormap) # Add legend to map
+            else:
+                logger.warning(f"Style column '{style_column}' contains no valid numeric data. Using default style.")
+                style_column = None # Fallback to default style
+        except Exception as style_e:
+            logger.error(f"Error setting up style based on column '{style_column}': {style_e}", exc_info=True)
+            style_column = None # Fallback to default style
+    elif style_column:
+        logger.warning(f"Style column '{style_column}' not found or not numeric. Using default style.")
+        style_column = None # Fallback to default style
+
+    # Function to get color based on value
+    def get_color(value):
+        if style_column and norm and cmap and pd.notna(value):
+            return colors.rgb2hex(cmap(norm(value)))
+        return '#3388ff' # Default Folium blue
+
+    # Add features to map
+    # Using GeoJson for potentially better performance with large datasets
+    # Prepare tooltip and popup fields
+    tooltip = folium.features.GeoJsonTooltip(fields=tooltip_columns) if tooltip_columns else None
+    popup = folium.features.GeoJsonPopup(fields=popup_columns) if popup_columns else None
+
+    # Define style function for GeoJson
+    def style_function(feature):
+        style = {
+            'color': get_color(feature['properties'].get(style_column)),
+            'weight': line_weight,
+            'opacity': 0.8,
+            # 'fillColor': get_color(feature['properties'].get(style_column)), # Uncomment for polygons
+            # 'fillOpacity': 0.5, # Uncomment for polygons
+        }
+        return style
+
+    # Add GeoJson layer
+    # Use the validated GDF
+    geojson_layer = folium.GeoJson(
+        gdf_4326_validated,
+        style_function=style_function,
+        tooltip=tooltip,
+        popup=popup,
+        name="Vector Features" # Layer name
+    )
+    geojson_layer.add_to(m)
+
+    # Add Layer Control
+    folium.LayerControl().add_to(m)
+
+    # Save map
+    try:
+        m.save(str(output_html_path))
+        logger.info(f"Folium map with vector features saved to: {output_html_path}")
+    except Exception as save_e:
+        logger.error(f"Error saving Folium map to {output_html_path}: {save_e}", exc_info=True)
 
 
 def display_dem_slope_on_folium_map(
