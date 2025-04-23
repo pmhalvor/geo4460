@@ -215,9 +215,9 @@ def update_geodata(
     print(f"Segment data file {segment_metadata_path} updated.")
 
     # isolate only the LineString and ids
-    points_gdf = combined_gdf[["id", "geometry"]]
-    points_gdf_4258 = points_gdf.to_crs(epsg=4258)
-    points_gdf_4258.to_file(segment_shapefile_path, driver="ESRI Shapefile")
+    # points_gdf = combined_gdf[["id", "geometry"]]
+    # points_gdf_4258 = points_gdf.to_crs(epsg=4258)
+    # points_gdf_4258.to_file(segment_shapefile_path, driver="ESRI Shapefile")
 
 
 def store_segments(segments):

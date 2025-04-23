@@ -7,7 +7,7 @@ import geopandas as gpd
 from shapely.geometry import Point, LineString # Moved import here
 from polyline import decode # Import polyline decode globally
 
-from src.strava.explore import explore_segments, store_segments
+from src.strava.explore import explore_segments, update_geodata
 from src.strava.locations import locations
 from src.traffic.stations import get_oslo_stations
 from src.config import settings # Import settings for configuration
@@ -219,75 +219,20 @@ def segments_to_gdf(segments_list):
 
 
 if __name__ == "__main__":
-    from shapely.geometry import Point
-    # The main script logic will be in the new file in src/collect/
-    logging.info("Running segments.py directly for testing purposes.")
+    oslo_stations = get_oslo_stations()
 
-    # Example: Create a dummy GeoDataFrame with one point in Oslo
-    oslo_center_lon, oslo_center_lat = 10.7522, 59.9139
-    dummy_gdf = gpd.GeoDataFrame(
-        [{'id': 1, 'geometry': Point(oslo_center_lon, oslo_center_lat)}],
-        crs="EPSG:4326"
-    ).to_crs(epsg=settings.processing.output_crs_epsg) # Convert to project CRS for bounds calculation
+    for place in locations.keys():
+        try:
+            oslo_bounds = locations[place]["bounds"]
+            oslo_segments = explore_segments(oslo_bounds).get("segments", None)
 
-    logging.info(f"Dummy GDF created with CRS: {dummy_gdf.crs}")
-    logging.info(f"Point coordinates: {dummy_gdf.geometry.iloc[0]}")
+            oslo_segments_gdf = segments_to_gdf(oslo_segments).to_crs("EPSG:4326")
 
-
-    # Test bounds calculation
-    test_bounds = create_bounds_around_point(dummy_gdf.geometry.iloc[0], areas_km2=[1])
-    logging.info(f"Test bounds (1 km²): {test_bounds}") # Should be in Lat/Lon (EPSG:4326) format for Strava API
-
-    # Test exploring (will make actual API calls if token is valid)
-    # Note: This might hit rate limits quickly if run repeatedly.
-    try:
-        # Need to convert point back to Lat/Lon for create_bounds_around_point
-        dummy_gdf_wgs84 = dummy_gdf.to_crs("EPSG:4326")
-        found_segments, processed_indices = explore_segments_with_multiple_bounds(
-            dummy_gdf_wgs84, area_sizes=[0.5, 1], point_col='geometry' # Use smaller areas for testing
-        )
-        logging.info(f"Found {len(found_segments)} segments near Oslo center.")
-        logging.info(f"Processed point indices: {processed_indices}")
-
-        if found_segments:
-            segments_gdf = segments_to_gdf(found_segments)
-            logging.info(f"Converted {len(segments_gdf)} segments to GeoDataFrame.")
-            # Optionally save for inspection
-            # test_output_path = settings.paths.output_dir / "test_collected_segments.gpkg"
-            # segments_gdf.to_file(test_output_path, driver="GPKG")
-            # logging.info(f"Saved test segments to {test_output_path}")
-
-    except Exception as e:
-        logging.error(f"Error during testing: {e}", exc_info=True)
-
-    # Original example code (commented out as it's superseded by the new script's logic)
-    # oslo_stations = get_oslo_stations()
-    # oslo_bounds = locations["oslo"]["bounds"]
-    # oslo_segments = explore_segments(oslo_bounds).get("segments", None)
-    # segments = explore_segments_with_multiple_bounds(
-    #     oslo_stations, area_sizes=[3, 5, 10]
-    # )
-    # store_segments(segments) # store_segments might need updates or replacement
-    # print(f"Nice exploring! 🔎" f" Found {len(segments)} new segments!")
-#                 segment_id = segment.get("id")
-#                 if segment_id not in unique_segment_ids:
-#                     unique_segment_ids.add(segment_id)
-#                     new_segments.append(segment)
-
-#             print(f"Found {len(new_segments)} new segments")
-#             all_segments.extend(new_segments)
-
-#     return all_segments
-
-
-# if __name__ == "__main__":
-#     oslo_stations = get_oslo_stations()
-
-#     oslo_bounds = locations["oslo"]["bounds"]
-#     oslo_segments = explore_segments(oslo_bounds).get("segments", None)
-
-#     segments = explore_segments_with_multiple_bounds(
-#         oslo_stations, area_sizes=[3, 5, 10]
-#     )
-#     store_segments(segments)
-#     print(f"Nice exploring! 🔎" f" Found {len(segments)} new segments!")
+            update_geodata(oslo_segments_gdf)
+            print(
+                f"Nice exploring! 🔎" \
+                f" Found {len(oslo_segments_gdf)} new segments in {place}!"
+            )
+        except AttributeError as e:
+            logging.error(f"Limit rate reached for {place}: {e}")
+            break

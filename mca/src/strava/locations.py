@@ -17,6 +17,33 @@ locations = {
             10.7225,
         ],
     },
+    "grunerlokka": {
+        "name": "Grünerløkka",
+        "bounds": [
+            59.917,
+            10.745,
+            59.93,
+            10.77,
+        ],
+    },
+    "sthanshaugen": {
+        "name": "St. Hanshaugen",
+        "bounds": [
+            59.922,
+            10.733,
+            59.932,
+            10.748,
+        ],
+    },
+    "fagerborg": {
+        "name": "Fagerborg",
+        "bounds": [
+            59.922,
+            10.722,
+            59.933,
+            10.735,
+        ],
+    },
     "bygdøy": {
         "name": "Bygdøy",
         "bounds": [
