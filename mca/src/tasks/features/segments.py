@@ -532,7 +532,6 @@ class Segments(FeatureBase):
              return pd.DataFrame(columns=desired_cache_cols), desired_cache_cols # Return empty DF with expected columns
         return segment_details_cache_df[cols_to_return], cols_to_return
 
-
     def _calculate_age(self, created_at_field):
         """Calculates segment age based on configuration."""
         # This function remains the same

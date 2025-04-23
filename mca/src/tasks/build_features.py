@@ -6,31 +6,15 @@ from whitebox import WhiteboxTools
 
 # Local imports
 from src.config import AppConfig, settings as app_settings
+from src.tasks.features.segments import Segments
+from src.tasks.features.heatmap import Heatmap
+from src.tasks.features.traffic import Traffic
+from src.tasks.features.roads import Roads
+from src.tasks.features.elevation import Elevation
+from src.tasks.features.cost_distance import CostDistance
+
 
 logger = logging.getLogger(__name__)  # Define logger earlier
-
-# Import feature classes from the new subdirectory
-try:
-    from .features.segments import Segments
-    from .features.heatmap import Heatmap
-    from .features.traffic import Traffic
-    from .features.roads import Roads
-    from .features.elevation import Elevation
-    from .features.cost_distance import CostDistance
-except ImportError:
-    # Fallback for potential execution from different relative paths
-    logger.warning(
-        "Could not import from .features.* directly, attempting relative import..."
-    )
-    from features.segments import Segments
-    from features.heatmap import Heatmap
-    from features.traffic import Traffic
-    from features.roads import Roads
-    from features.elevation import Elevation
-    from features.cost_distance import CostDistance
-
-
-# --- Main Task Function ---
 
 
 def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
@@ -49,7 +33,6 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     logger.info("--- Start Feature Building Task ---")
 
     # Initialize Feature Objects
-    # Pass settings and wbt instance to each feature class
     segments = Segments(settings, wbt)
     heatmap = Heatmap(settings, wbt)
     traffic = Traffic(settings, wbt)
@@ -75,6 +58,8 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
 
     # Build features using Dask where applicable (build methods handle dask.delayed)
     logger.info("Building feature layers...")
+    # TODO make sure dask gets all tasks into single list for compute()
+    # in other words, rewrite this part
     segment_raster_paths = segments.build()  # Returns list of paths
     speed_raster_path = heatmap.build()  # Returns path or None
     traffic_raster_path = traffic.build()  # Returns path or None
@@ -82,29 +67,15 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     dem_path, slope_path = elevation.build()  # Returns two paths or None
 
     # Initialize and build Cost distance (depends on slope)
-    cost_distance = None
-    cost_raster_path = None
-    if slope_path:
-        try:
-            # Pass necessary raster paths (ensure they are Path objects)
-            cost_distance = CostDistance(
-                settings,
-                wbt,
-                slope_raster_path=Path(slope_path),
-                # roads_raster_path=Path(road_vector_paths.get("roads_rasterized")), # If roads are rasterized
-                speed_raster_path=(
-                    Path(speed_raster_path) if speed_raster_path else None
-                ),
-            )
-            cost_raster_path = cost_distance.build()  # This returns the path or None
-        except FileNotFoundError as e:
-            logger.error(f"Could not initialize CostDistance: {e}")
-        except Exception as e:
-            logger.error(f"Error building CostDistance: {e}", exc_info=True)
-    else:
-        logger.warning(
-            "Skipping Cost Distance calculation as slope raster was not generated."
-        )
+    cost_distance = CostDistance(
+        settings,
+        wbt,
+        slope_raster_path=Path(slope_path),
+        roads_raster_path=Path(road_vector_paths.get("roads_rasterized")), # If roads are rasterized
+        speed_raster_path=(
+            Path(speed_raster_path) if speed_raster_path else None
+        ),
+    )
 
     # Consolidate results, including paths to saved intermediate files
     results = {
@@ -120,7 +91,7 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
         "dem_raster": dem_path,
         "slope_raster": slope_path,
         "cost_distance": cost_distance,
-        "cost_raster": cost_raster_path,
+        # "cost_raster": cost_raster_path,
         # Add paths to prepared vector data as well
         "prepared_segments": segments.output_paths.get("prepared_segments_gpkg"),
         "prepared_activities": heatmap.output_paths.get("prepared_activities_gpkg"),

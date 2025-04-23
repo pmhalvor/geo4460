@@ -11,10 +11,6 @@ from src.config import settings
 from src.utils import setup_output_dir
 from src.tasks.build_features import build_features_task
 
-# Import placeholder task functions (assuming they will be created)
-# from src.tasks.combine_features import combine_features_task
-# from src.tasks.evaluate import evaluate_task
-
 
 logger = logging.getLogger(__name__)
 
