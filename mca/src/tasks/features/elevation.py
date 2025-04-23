@@ -529,29 +529,17 @@ class Elevation(FeatureBase):
             logger.error("Cannot build Elevation features: Data loading failed.")
             return [] # Return empty list consistent with other features
 
-        # Execute the delayed task
-        logger.info("Computing DEM and Slope generation task...")
-        task = self._build_dem_and_slope()
-        # dask.compute returns a tuple, where the first element is the result of the task
-        results = dask.compute(task)
-        # The task itself returns a tuple (dem_path_str, slope_path_str) or (None, None)
-        dem_result, slope_result = results[0] if results and isinstance(results[0], tuple) and len(results[0]) == 2 else (None, None)
+        # Get the delayed task for DEM and Slope generation
+        logger.info("Creating delayed task for DEM and Slope generation...")
+        task = self._build_dem_and_slope() # This returns a dask.delayed object or (None, None)
 
-        successful_outputs = []
-        if dem_result and Path(dem_result).exists():
-            logger.info(f"DEM generation successful: {dem_result}")
-            successful_outputs.append(dem_result)
-        else:
-            logger.warning("DEM generation appears to have failed or file not found.")
+        if task is None:
+            logger.error("Failed to create delayed task for DEM/Slope generation.")
+            return None # Indicate task creation failure
 
-        if slope_result and Path(slope_result).exists():
-            logger.info(f"Slope generation successful: {slope_result}")
-            successful_outputs.append(slope_result)
-        else:
-            logger.warning("Slope generation appears to have failed or file not found.")
-
-        logger.info(f"Elevation build finished. Successful outputs: {len(successful_outputs)}")
-        return successful_outputs
+        logger.info("Returning delayed task for DEM/Slope computation.")
+        # Return the delayed object directly
+        return task
 
 
 if __name__ == "__main__":
@@ -611,19 +599,40 @@ if __name__ == "__main__":
             # Only proceed to build if data loaded successfully
             if elevation_feature.gdf is not None:
                 logger.info("2. Testing Elevation Build (DEM and Slope)...")
-                # Build returns list [dem_path, slope_path] or fewer if failed
-                raster_paths = elevation_feature.build()
-                logger.info(f"Elevation build process completed. Found {len(raster_paths)} output paths.")
+                # Build now returns a single delayed task or None
+                delayed_task = elevation_feature.build()
 
-                # --- Display Generated Rasters ---
-                if raster_paths:
-                    logger.info("--- Displaying Generated Rasters ---")
-                    for path_str in raster_paths:
-                        path_obj = Path(path_str)
-                        logger.info(f"Processing raster for display: {path_obj.name}")
-                        if not path_obj.exists():
-                            logger.warning(f"  - Raster file not found: {path_obj}. Skipping display.")
-                            continue
+                if delayed_task is not None:
+                    logger.info("Received delayed task from build(). Computing...")
+                    # Compute the single task. dask.compute returns a tuple.
+                    # The task itself returns a tuple (dem_path_str, slope_path_str) or (None, None)
+                    computed_results = dask.compute(delayed_task)
+                    dem_result, slope_result = computed_results[0] if computed_results and isinstance(computed_results[0], tuple) and len(computed_results[0]) == 2 else (None, None)
+                    logger.info("Build computation completed.")
+
+                    # Process the computed results
+                    raster_paths = []
+                    if dem_result and Path(dem_result).exists():
+                        logger.info(f"DEM generation successful: {dem_result}")
+                        raster_paths.append(dem_result)
+                    else:
+                        logger.warning("DEM generation appears to have failed or file not found after compute.")
+
+                    if slope_result and Path(slope_result).exists():
+                        logger.info(f"Slope generation successful: {slope_result}")
+                        raster_paths.append(slope_result)
+                    else:
+                        logger.warning("Slope generation appears to have failed or file not found after compute.")
+
+                    # --- Display Generated Rasters ---
+                    if raster_paths:
+                        logger.info("--- Displaying Generated Rasters ---")
+                        for path_str in raster_paths:
+                            path_obj = Path(path_str)
+                            logger.info(f"Processing raster for display: {path_obj.name}")
+                            if not path_obj.exists():
+                                logger.warning(f"  - Raster file not found: {path_obj}. Skipping display.")
+                                continue
                         try:
                             # Define output path for the map
                             map_output_path = settings.paths.output_dir / f"{path_obj.stem}_map.html"
