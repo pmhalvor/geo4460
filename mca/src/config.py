@@ -80,6 +80,13 @@ class PathsConfig(BaseModel):
         / "collected_segments_from_diff.gpkg",
         description="GeoPackage storing segments collected via API calls based on the diff layer points.",
     )
+    points_without_segments_gpkg: Path = Field(
+        default_factory=lambda: BASE_DIR
+        / "data"
+        / "segments"
+        / "points_without_segments.gpkg",
+        description="GeoPackage storing points on simple roads that lack nearby segments.",
+    )
 
 
     # Ensure directories exist or create them if needed
