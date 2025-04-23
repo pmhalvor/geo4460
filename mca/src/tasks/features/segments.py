@@ -417,6 +417,7 @@ class Segments(FeatureBase):
 
                 # Keep only desired columns that exist in the loaded cache
                 cols_to_keep_from_cache = [col for col in desired_cache_cols if col in temp_cache_df.columns]
+                logger.info(f"Columns to keep from cache: {cols_to_keep_from_cache}")
                 if cols_to_keep_from_cache:
                     segment_details_cache_df = temp_cache_df[cols_to_keep_from_cache]
                     logger.info(f"Loaded {len(segment_details_cache_df)} segment details for columns {cols_to_keep_from_cache} from CSV cache: {cache_path}")
@@ -443,17 +444,17 @@ class Segments(FeatureBase):
         newly_fetched_details = []
         needs_saving = False
         if ids_to_fetch:
-            logger.info(f"Fetching details for {len(ids_to_fetch)} segments not found or incomplete in cache...")
+            logger.info(f"Fetching details for {len(ids_to_fetch)} segments without details in cache...")
             i = 0 # Dev counter
             for segment_id in tqdm(ids_to_fetch, desc="Fetching Segment Details"):
                 segment_input = {"id": segment_id}
                 details = get_segment_details(segment_input) # Assumes this returns a dict or error code
                 if details:
                     if isinstance(details, int) and details == 429:
-                        logger.warning("Rate limit likely reached (status 429). Stopping.")
+                        logger.warning("Rate limit reached (status 429). Stopping.")
                         break
                     if isinstance(details, dict) and details.get("status_code") == 429:
-                        logger.warning("Rate limit likely reached (status 429 dict). Stopping.")
+                        logger.warning("Rate limit reached (status 429 dict). Stopping.")
                         break
 
                     # Extract only the desired columns from the fetched details
@@ -470,31 +471,51 @@ class Segments(FeatureBase):
                     # For now, don't add placeholder, rely on merge.
 
                 time.sleep(self.settings.processing.strava_api_request_delay)
-                # # --- DEV ONLY --- 
+                # --- DEV ONLY --- 
                 # NOTE Reactivate this block when developing, to avoid excessive API calls
-                # i += 1
-                # if i > 5: 
-                #     logger.info("DEV ONLY: Skipping rest of detail fetching.")
-                #     break
-                # # ----------------
+                i += 1
+                if i > 5: 
+                    logger.info("DEV ONLY: Skipping rest of detail fetching.")
+                    break
+                # ----------------
 
             if newly_fetched_details:
                 new_details_df = pd.DataFrame(newly_fetched_details)
                 # Ensure ID types match before concat
+                new_details_df = pd.DataFrame(newly_fetched_details)
+                # Ensure ID types match before concat, using the initial GDF as reference if cache is empty
+                id_dtype_ref = initial_gdf[segment_id_field].dtype if not segment_details_cache_df.empty else new_details_df[segment_id_field].dtype
                 if not segment_details_cache_df.empty:
-                     new_details_df[segment_id_field] = new_details_df[segment_id_field].astype(segment_details_cache_df[segment_id_field].dtype)
-                segment_details_cache_df = pd.concat([segment_details_cache_df, new_details_df], ignore_index=True)
-                # Keep only the latest details for each segment
-                segment_details_cache_df = segment_details_cache_df.drop_duplicates(subset=[segment_id_field], keep='last')
+                    segment_details_cache_df[segment_id_field] = segment_details_cache_df[segment_id_field].astype(id_dtype_ref)
+                new_details_df[segment_id_field] = new_details_df[segment_id_field].astype(id_dtype_ref)
+
+                # Combine existing cache with ONLY the newly fetched details
+                logger.info(f"Combining {len(segment_details_cache_df)} cached details with {len(new_details_df)} newly fetched details.")
+                # Ensure columns align before concat, adding missing columns with NaN
+                all_cols = list(dict.fromkeys(segment_details_cache_df.columns.tolist() + new_details_df.columns.tolist()))
+                segment_details_cache_df = segment_details_cache_df.reindex(columns=all_cols)
+                new_details_df = new_details_df.reindex(columns=all_cols)
+
+                combined_df = pd.concat([segment_details_cache_df, new_details_df], ignore_index=True)
+
+                # Keep only the latest details for each segment ID (handles potential overlaps/duplicates)
+                # Using 'last' ensures newly fetched data takes precedence if an ID somehow existed in both.
+                final_cache_df = combined_df.drop_duplicates(subset=[segment_id_field], keep='last')
+                logger.info(f"Combined cache size before saving: {len(final_cache_df)} segments.")
+                segment_details_cache_df = final_cache_df # Update the main variable
+            else:
+                 logger.info("No new details were fetched.")
 
         if needs_saving:
             try:
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
                 # Select only the desired cache columns that actually exist in the DataFrame before saving
+                # Use the updated segment_details_cache_df which now contains combined data
                 cols_to_save = [col for col in desired_cache_cols if col in segment_details_cache_df.columns]
                 if cols_to_save:
+                    logger.info(f"Saving updated cache with columns: {cols_to_save}")
                     segment_details_cache_df[cols_to_save].to_csv(cache_path, index=False)
-                    logger.info(f"Updated segment details cache CSV: {cache_path} with columns: {cols_to_save}")
+                    logger.info(f"Updated segment details cache CSV: {cache_path} with {len(segment_details_cache_df)} segments.")
                 else:
                     logger.warning("No columns suitable for saving to cache were found in the DataFrame.")
             except Exception as e:
@@ -503,8 +524,12 @@ class Segments(FeatureBase):
             logger.info("No new segment details fetched or cache update needed.")
 
         # Return only the desired cache columns that actually exist in the DataFrame
+        # Use the potentially updated segment_details_cache_df
         cols_to_return = [col for col in desired_cache_cols if col in segment_details_cache_df.columns]
-        logger.debug(f"Returning segment details DataFrame with columns: {cols_to_return}")
+        logger.info(f"Returning segment details DataFrame with columns: {cols_to_return}")
+        if not cols_to_return:
+             logger.warning("Returning empty DataFrame as no desired columns exist.")
+             return pd.DataFrame(columns=desired_cache_cols), desired_cache_cols # Return empty DF with expected columns
         return segment_details_cache_df[cols_to_return], cols_to_return
 
 
