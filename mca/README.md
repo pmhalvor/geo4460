@@ -43,6 +43,23 @@ uv sync
 uv run python -m src.workflow
 ```
 
+The workflow leverages `dask` to parallelize the featurization process. 
+The enables scalability and allows for faster processing of large datasets.
+
+The pipeline is designed to be modular, allowing for easy addition or removal of tasks as needed.
+Every feature can be built indivdually by calling the corresponding feature layer as a module:
+```bash
+python -m src.tasks.features.heatmap
+```
+
+Each layer produces a Folium map, to quickly inspect the results of the analysis.
+We haven't automated viewing of these maps, for faster iterations.
+However example results have been included in the `output/` folder.
+
+
+
+
+
 ## Workflow outline
 1. Prepare data: convert data from `data/` to gdf w/ polylines or points
     1. Segments: gdf, get_metric(metric, id=“all”), get(id), len, …
@@ -120,10 +137,10 @@ uv run python -m src.workflow
     - `mca/data/segments/segments_oslo.geojson`
 - [x]  Strava activities (geojson)
     - polyline, speed line, activity id
-- [ ]  N50 (fgdb, +++)
-    - [ ]  Roads
-        - [ ]  roads
-        - [ ]  bike lanes
+- [x]  N50 (fgdb, +++)
+    - [x]  Roads
+        - [x]  roads
+        - [x]  bike lanes
     - [x]  Elevation
 - [ ]  Traffic (json)
     - [ ]  Cars
