@@ -4,6 +4,8 @@ import numpy as np
 import requests  # Import requests to catch HTTPError
 import pandas as pd
 import geopandas as gpd
+from shapely.geometry import Point, LineString # Moved import here
+from polyline import decode # Import polyline decode globally
 
 from src.strava.explore import explore_segments, store_segments
 from src.strava.locations import locations
@@ -110,6 +112,10 @@ def explore_segments_with_multiple_bounds(gdf, area_sizes=[1, 2, 5], point_col='
                 except AttributeError as e:
                     logging.error(f"    Limit rate reached for row {idx}/{total_points}, bounds {i+1}")
                     break # exit while
+                # except keyboard interpupt:
+                except KeyboardInterrupt:
+                    logging.info("    Process interrupted by user.")
+                    break
                 except Exception as e:
                     # Catch any other unexpected errors during the API call
                     logging.error(f"    Unexpected error during API call for point {point_id}, bounds {i+1}: {e}")
@@ -149,36 +155,62 @@ def segments_to_gdf(segments_list):
     if not segments_list:
         return gpd.GeoDataFrame([], columns=['id', 'name', 'polyline', 'geometry'], crs=settings.processing.output_crs_epsg) # Ensure CRS
 
+    logging.info(f"Example segment: {segments_list[0]}")
     df = pd.DataFrame(segments_list)
 
-    # TODO: Add polyline decoding here if explore_segments returns encoded polylines
-    # Example placeholder: assumes 'polyline' column exists and needs decoding
-    # from polyline import decode
-    # df['decoded_polyline'] = df['polyline'].apply(lambda x: decode(x) if x else [])
-    # df['geometry'] = df['decoded_polyline'].apply(lambda coords: LineString([(lon, lat) for lat, lon in coords]) if coords else None)
+    # Decode the polyline string from the 'points' column
+    # Handle potential errors during decoding or if 'points' is missing/None
+    def safe_decode(polyline_str):
+        if pd.isna(polyline_str) or not polyline_str:
+            return None
+        try:
+            # Polyline library expects (lat, lon) pairs
+            return decode(polyline_str)
+        except Exception as e:
+            logging.warning(f"Could not decode polyline '{polyline_str[:20]}...': {e}")
+            return None
 
-    # Placeholder: If 'start_latlng' and 'end_latlng' are available directly
-    from shapely.geometry import Point, LineString
-    # Check if 'points' (decoded polyline) or 'start_latlng'/'end_latlng' exist
-    if 'points' in df.columns and isinstance(df['points'].iloc[0], str): # Assuming 'points' is the encoded polyline string
-         # Need polyline decoding logic here!
-         logging.warning("Polyline decoding not implemented in segments_to_gdf. Geometry might be incorrect.")
-         # As a fallback, maybe use start/end points if available?
-         if 'start_latlng' in df.columns and 'end_latlng' in df.columns:
-              df['geometry'] = df.apply(lambda row: LineString([Point(row['start_latlng'][1], row['start_latlng'][0]), Point(row['end_latlng'][1], row['end_latlng'][0])]) if row['start_latlng'] and row['end_latlng'] else None, axis=1)
-         else:
-              df['geometry'] = None # Cannot create geometry
-    elif 'start_latlng' in df.columns and 'end_latlng' in df.columns:
-         # Create simple LineString from start/end if polyline isn't available/decoded
-         df['geometry'] = df.apply(lambda row: LineString([Point(row['start_latlng'][1], row['start_latlng'][0]), Point(row['end_latlng'][1], row['end_latlng'][0])]) if row['start_latlng'] and row['end_latlng'] else None, axis=1)
-    else:
-         logging.error("Could not find suitable columns ('points', or 'start_latlng'/'end_latlng') to create geometry.")
-         df['geometry'] = None
+    df['decoded_coords'] = df['points'].apply(safe_decode)
 
+    # Create LineString geometry from decoded coordinates
+    # Polyline decode gives (lat, lon), Shapely LineString expects (lon, lat)
+    def create_linestring(coords):
+        if coords and len(coords) >= 2:
+            try:
+                # Swap lat/lon for Shapely
+                return LineString([(lon, lat) for lat, lon in coords])
+            except Exception as e:
+                logging.warning(f"Could not create LineString from coords: {e}")
+                return None
+        elif coords and len(coords) == 1:
+             # Handle single point case if necessary, maybe return a Point or None
+             logging.warning(f"Segment only has one point, cannot create LineString: {coords}")
+             # return Point(coords[0][1], coords[0][0]) # Option: return Point
+             return None
+        return None
 
-    gdf = gpd.GeoDataFrame(df, geometry='geometry', crs="EPSG:4326") # Assume Strava returns WGS84
-    gdf = gdf.to_crs(epsg=settings.processing.output_crs_epsg) # Reproject to target CRS
-    gdf = gdf.dropna(subset=['geometry']) # Drop segments where geometry couldn't be created
+    df['geometry'] = df['decoded_coords'].apply(create_linestring)
+
+    # Drop rows where geometry creation failed
+    df = df.dropna(subset=['geometry'])
+
+    if df.empty:
+        logging.warning("No valid geometries could be created from the segments list.")
+        return gpd.GeoDataFrame([], columns=df.columns.tolist() + ['geometry'], crs=settings.processing.output_crs_epsg)
+
+    # Convert to GeoDataFrame
+    gdf = gpd.GeoDataFrame(df, geometry='geometry', crs="EPSG:4326") # Assume Strava returns WGS84 (lat/lon)
+
+    # Reproject to the target CRS specified in settings
+    gdf = gdf.to_crs(epsg=settings.processing.output_crs_epsg)
+
+    # Select and potentially reorder columns for the final output GDF
+    # Keep essential segment info + geometry
+    cols_to_keep = ['id', 'name', 'distance', 'avg_grade', 'climb_category', 'start_latlng', 'end_latlng', 'points', 'geometry']
+    # Filter columns that actually exist in the DataFrame
+    final_cols = [col for col in cols_to_keep if col in gdf.columns]
+    gdf = gdf[final_cols]
+
     return gdf
 
 

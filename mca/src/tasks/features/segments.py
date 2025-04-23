@@ -186,11 +186,17 @@ class Segments(FeatureBase):
         if gdf is None or gdf.empty:
             return gdf
         original_len = len(gdf)
+        logger.info(f"Cleaning up GDF with {original_len} segments...")
+        logger.info(f"Columns in GDF: {gdf.columns.tolist()}")
         cols_to_check = ['geometry'] + [col for col in required_cols if col in gdf.columns]
+        logger.info(f"Checking for nulls in columns: {cols_to_check}")
         cleaned_gdf = gdf.dropna(subset=cols_to_check)
         dropped_count = original_len - len(cleaned_gdf)
         if dropped_count > 0:
             logger.warning(f"Dropped {dropped_count} segments due to null geometry or missing essential details ({required_cols}).")
+            if dropped_count == original_len:
+                logger.error("All segments dropped during cleanup. Check input data.")
+                raise ValueError("All segments dropped during cleanup.")
         if cleaned_gdf.empty:
             logger.error("No valid segments remaining after initial cleanup.")
             return None
@@ -303,9 +309,11 @@ class Segments(FeatureBase):
         gpkg1_gdf = self._load_single_segment_source(
             self.settings.paths.collected_segments_gpkg, segment_id_field, target_crs
         )
+        # Load segments collected based on simple roads
         gpkg2_gdf = self._load_single_segment_source(
-            self.settings.paths.points_without_segments_gpkg, segment_id_field, target_crs
+            self.settings.paths.collected_segments_from_simple_roads_gpkg, segment_id_field, target_crs
         )
+        # Combine all three sources
         combined_gdf = self._combine_segment_sources(geojson_gdf, gpkg1_gdf, segment_id_field)
         combined_gdf = self._combine_segment_sources(combined_gdf, gpkg2_gdf, segment_id_field)
 
@@ -322,11 +330,12 @@ class Segments(FeatureBase):
         final_gdf_structure = self._create_final_gdf(gdf_with_polylines, target_crs, polyline_field)
         cleaned_gdf = self._cleanup_gdf(final_gdf_structure, [created_at_field]) # Cleanup based on essential cols
         validated_gdf = self._validate_geometries(cleaned_gdf)
-        simplified_gdf = self._simplify_geometries(
-            validated_gdf, self.settings.processing.segment_collection_simplify_tolerance_projected
-        )
+        # simplified_gdf = self._simplify_geometries(
+        #     validated_gdf, self.settings.processing.segment_collection_simplify_tolerance_projected
+        # ) NOTE remove simplification to avoid straight lines
 
-        self.gdf = simplified_gdf # Assign the fully processed GDF to self.gdf
+        # self.gdf = simplified_gdf # Assign the fully processed GDF to self.gdf
+        self.gdf = validated_gdf # Assign the fully processed GDF to self.gdf
 
         # --- 4. Calculate Metrics ---
         if self.gdf is None or self.gdf.empty:

@@ -80,12 +80,20 @@ class PathsConfig(BaseModel):
         / "collected_segments_from_diff.gpkg",
         description="GeoPackage storing segments collected via API calls based on the diff layer points.",
     )
-    points_without_segments_gpkg: Path = Field(
+    # Files for collecting segments based on simple roads lacking segments
+    remaining_simple_road_points_gpkg: Path = Field(
         default_factory=lambda: BASE_DIR
         / "data"
         / "segments"
-        / "points_without_segments.gpkg",
-        description="GeoPackage storing points on simple roads that lack nearby segments.",
+        / "simple_road_remaining_search_points.gpkg",
+        description="GeoPackage storing points sampled from simple roads (lacking segments) that still need searching.",
+    )
+    collected_segments_from_simple_roads_gpkg: Path = Field(
+        default_factory=lambda: BASE_DIR
+        / "data"
+        / "segments"
+        / "collected_segments_from_simple_roads.gpkg",
+        description="GeoPackage storing segments collected via API calls based on simple road points.",
     )
 
 
@@ -100,10 +108,10 @@ class PathsConfig(BaseModel):
         # Validate essential input directories/files exist
         if not self.data_dir.is_dir():
             raise NotADirectoryError(f"Data directory not found: {self.data_dir}")
-        if not self.strava_segments_geojson.is_file():
-            raise FileNotFoundError(
-                f"Strava segments file not found: {self.strava_segments_geojson}"
-            )
+        # if not self.strava_segments_geojson.is_file():
+        #     raise FileNotFoundError(
+        #         f"Strava segments file not found: {self.strava_segments_geojson}"
+        #     )
         if not self.traffic_bikes_csv.is_file():
             raise FileNotFoundError(
                 f"Traffic bikes CSV file not found: {self.traffic_bikes_csv}"
