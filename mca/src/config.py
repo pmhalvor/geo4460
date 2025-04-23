@@ -182,7 +182,10 @@ class OutputFilesConfig(BaseModel):
         "segment_popularity"  # e.g., segment_popularity_athletes_per_age.tif
     )
     average_speed_raster: str = "average_speed.tif"
-    traffic_density_raster: str = "traffic_density.tif"
+    # traffic_density_raster: str = "traffic_density.tif" # Old single file
+    traffic_density_raster_morning: str = "traffic_density_morning.tif" # 00:00-08:00
+    traffic_density_raster_daytime: str = "traffic_density_daytime.tif" # 08:00-16:00
+    traffic_density_raster_evening: str = "traffic_density_evening.tif" # 16:00-24:00
     elevation_dem_raster: str = "elevation_dem.tif"
     slope_raster: str = "slope.tif"
     cost_function_raster: str = "cost_function.tif"

@@ -631,11 +631,6 @@ class Segments(FeatureBase):
         if metric_cols_to_fill:
             self.gdf[metric_cols_to_fill] = self.gdf[metric_cols_to_fill].fillna(0)
 
-    # --- Build Methods (Raster/Vector) ---
-    # These methods (_build_popularity_raster*, _build_popularity_vector, build)
-    # should now work correctly as self.gdf is expected to be valid and in the target CRS.
-    # They remain unchanged from the previous version.
-
     @dask.delayed
     def _build_popularity_raster(self, metric: str):
         """Builds a popularity raster using the configured interpolation method."""
