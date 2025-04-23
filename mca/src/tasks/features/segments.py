@@ -335,7 +335,7 @@ class Segments(FeatureBase):
         # ) NOTE remove simplification to avoid straight lines
 
         # self.gdf = simplified_gdf # Assign the fully processed GDF to self.gdf
-        self.gdf = validated_gdf # Assign the fully processed GDF to self.gdf
+        self.gdf = validated_gdf.copy() # Assign the fully processed GDF to self.gdf
 
         # --- 4. Calculate Metrics ---
         if self.gdf is None or self.gdf.empty:
@@ -511,10 +511,12 @@ class Segments(FeatureBase):
         """Calculates segment age based on configuration."""
         # This function remains the same
         age_col = None
+
         try:
             self.gdf[created_at_field] = pd.to_datetime(
                 self.gdf[created_at_field], errors="coerce", utc=True
             )
+            logging.info(f"Converted '{created_at_field}' to datetime.")
             original_len_date = len(self.gdf)
             self.gdf = self.gdf.dropna(subset=[created_at_field])
             if len(self.gdf) < original_len_date:
@@ -740,13 +742,16 @@ class Segments(FeatureBase):
             for suffix in [".shp", ".shx", ".dbf", ".prj", ".cpg"]:
                 temp_file = input_shp_path.with_suffix(suffix)
                 if temp_file.exists():
-                    try: temp_file.unlink()
-                    except OSError as unlink_e: logger.warning(f"Could not delete temp file {temp_file}: {unlink_e}")
+                    try: 
+                        temp_file.unlink()
+                    except OSError as unlink_e: 
+                        logger.warning(f"Could not delete temp file {temp_file}: {unlink_e}")
 
     def _build_popularity_raster_kriging(self, metric: str):
         """NOTE: Current kriging implementation is broken. Use IDW instead."""
         logger.warning(f"Attempting Kriging for {metric}. NOTE: geokrige library might be unstable.")
-        if self.gdf is None: raise ValueError("Segments GDF not loaded.")
+        if self.gdf is None: 
+            raise ValueError("Segments GDF not loaded.")
         if metric not in self.gdf.columns or self.gdf[metric].isna().all():
             logger.warning(f"Metric '{metric}' not found or all NaN. Skipping Kriging.")
             return None
@@ -755,7 +760,8 @@ class Segments(FeatureBase):
             self.gdf[metric] = pd.to_numeric(self.gdf[metric], errors="coerce").fillna(0)
 
         points_gdf = polyline_to_points(self.gdf[["geometry", metric]].dropna(subset=[metric]))
-        if points_gdf.empty: logger.warning(f"No valid points for {metric}. Skipping Kriging."); return None
+        if points_gdf.empty: 
+            logger.warning(f"No valid points for {metric}. Skipping Kriging."); return None
 
         X_known = np.array(points_gdf.geometry.apply(lambda geom: [geom.x, geom.y]).tolist())
         y_known = points_gdf[metric].to_numpy()
@@ -770,26 +776,40 @@ class Segments(FeatureBase):
         interpolated_grid = None
         try:
             logger.info(f"Running Ordinary Kriging for '{metric}'...")
-            OK = OrdinaryKriging(); OK.load(X=X_known, y=y_known)
+            OK = OrdinaryKriging()
+            OK.load(X=X_known, y=y_known)
             fit_successful = False
             try:
-                n_bins = 15; logger.info(f"Calculating variogram ({n_bins} bins)...")
-                OK.variogram(bins=n_bins); logger.info("Fitting variogram model...")
+                n_bins = 15
+                logger.info(f"Calculating variogram ({n_bins} bins)...")
+                OK.variogram(bins=n_bins)
+                logger.info("Fitting variogram model...")
                 OK.fit(model=self.settings.processing.kriging_model)
                 if hasattr(OK, "learned_params") and OK.learned_params is not None:
-                    fit_successful = True; logger.info(f"Variogram fit successful: {OK.learned_params}")
-                else: logger.warning("Variogram fitting did not produce parameters.")
-            except ValueError as ve: logger.warning(f"Variogram calculation failed: {ve}.")
-            except Exception as fit_e: logger.warning(f"Could not fit variogram: {fit_e}.")
+                    fit_successful = True
+                    logger.info(f"Variogram fit successful: {OK.learned_params}")
+                else: 
+                    logger.warning("Variogram fitting did not produce parameters.")
+            except ValueError as ve: 
+                logger.warning(f"Variogram calculation failed: {ve}.")
+            except Exception as fit_e: 
+                logger.warning(f"Could not fit variogram: {fit_e}.")
 
             if fit_successful:
-                logger.info("Predicting values on grid..."); zvalues = OK.predict(X=X_predict)
+                logger.info("Predicting values on grid...")
+                zvalues = OK.predict(X=X_predict)
                 logger.info(f"Kriging prediction complete for '{metric}'.")
                 grid_shape = (len(grid_y_coords), len(grid_x_coords))
-                if zvalues.size == grid_shape[0] * grid_shape[1]: interpolated_grid = zvalues.reshape(grid_shape)
-                else: raise ValueError(f"Kriging output size {zvalues.size} != grid shape {grid_shape}")
-            else: logger.error(f"Skipping prediction for {metric} due to variogram fit failure."); return None
-        except Exception as e: logger.error(f"Error during geokrige for {metric}: {e}", exc_info=True); return None
+                if zvalues.size == grid_shape[0] * grid_shape[1]: 
+                    interpolated_grid = zvalues.reshape(grid_shape)
+                else: 
+                    raise ValueError(f"Kriging output size {zvalues.size} != grid shape {grid_shape}")
+            else: 
+                logger.error(f"Skipping prediction for {metric} due to variogram fit failure.")
+                return None
+        except Exception as e: 
+            logger.error(f"Error during geokrige for {metric}: {e}", exc_info=True)
+            return None
 
         if interpolated_grid is not None:
             try:
@@ -800,14 +820,17 @@ class Segments(FeatureBase):
                 self._save_raster(interpolated_grid, profile, "segment_popularity_raster_prefix", metric_name=metric)
                 output_path = self.output_paths.get(f"segment_popularity_raster_prefix_{metric}")
                 return str(output_path) if output_path else None
-            except Exception as e: logger.error(f"Error saving Kriging raster for {metric}: {e}", exc_info=True); return None
-        else: return None
+            except Exception as e: 
+                logger.error(f"Error saving Kriging raster for {metric}: {e}", exc_info=True); return None
+        else: 
+            return None
 
     @dask.delayed
     def _build_popularity_vector(self, metric: str):
         """Builds a popularity vector layer (buffered segments) for a single metric."""
         logger.info(f"Building popularity vector for metric: {metric}")
-        if self.gdf is None: raise ValueError("Segments GDF not loaded.")
+        if self.gdf is None: 
+            raise ValueError("Segments GDF not loaded.")
         if metric not in self.gdf.columns or self.gdf[metric].isna().all():
             logger.warning(f"Metric '{metric}' not found or all NaN. Skipping vector.")
             return None
@@ -823,25 +846,17 @@ class Segments(FeatureBase):
 
         metric_gdf = self.gdf[[self.settings.input_data.segment_id_field, "geometry", metric]].copy()
         metric_gdf = metric_gdf.dropna(subset=[metric])
-        if metric_gdf.empty: logger.warning(f"No valid segments for {metric} after NaN drop."); return None
+        if metric_gdf.empty: 
+            logger.warning(f"No valid segments for {metric} after NaN drop."); return None
 
         # Log-Normalize Metric
         log_metric = np.log(metric_gdf[metric] + 1); min_val = log_metric.min(); max_val = log_metric.max()
         norm_col = f"{metric}_norm"
-        if max_val == min_val: metric_gdf[norm_col] = 0.0
-        else: metric_gdf[norm_col] = (log_metric - min_val) / (max_val - min_val)
+        if max_val == min_val: 
+            metric_gdf[norm_col] = 0.0
+        else: 
+            metric_gdf[norm_col] = (log_metric - min_val) / (max_val - min_val)
         logger.info(f"Normalized '{metric}' to '{norm_col}' (Log Min/Max: {min_val:.2f}/{max_val:.2f})")
-
-        # Apply Distance Buffer (Optional - Controlled by config, but code removed for simplicity now)
-        # buffer_dist = self.settings.processing.segment_popularity_buffer_distance
-        # if buffer_dist > 0:
-        #     logger.info(f"Applying buffer of {buffer_dist}m...")
-        #     try:
-        #         metric_gdf = metric_gdf.set_geometry("geometry")
-        #         metric_gdf["geometry"] = metric_gdf.geometry.buffer(buffer_dist, cap_style=2, join_style=2)
-        #         if not metric_gdf.geometry.is_valid.all(): logger.warning("Invalid geometries after buffering.")
-        #     except Exception as e: logger.error(f"Error buffering {metric}: {e}", exc_info=True); return None
-        # else: logger.info("Skipping distance buffer (distance <= 0).")
 
 
         # Add Color Column
@@ -869,15 +884,19 @@ class Segments(FeatureBase):
                     line_weight=3 # Use line_weight for LineStrings
                 )
                 logger.info(f"Saved popularity vector Folium map: {map_output_path}")
-            except Exception as map_e: logger.error(f"Error generating Folium map for {metric}: {map_e}", exc_info=True)
+            except Exception as map_e:
+                logger.error(f"Error generating Folium map for {metric}: {map_e}", exc_info=True)
             return str(output_vector_path)
-        except Exception as e: logger.error(f"Error saving vector for {metric}: {e}", exc_info=True); return None
+        except Exception as e: 
+            logger.error(f"Error saving vector for {metric}: {e}", exc_info=True); return None
 
 
     def build(self):
         """Builds popularity vectors (or rasters) for configured metrics."""
-        if self.gdf is None: self.load_data()
-        if self.gdf is None: logger.error("Cannot build Segments: Data loading failed."); return []
+        if self.gdf is None: 
+            self.load_data()
+        if self.gdf is None: 
+            logger.error("Cannot build Segments: Data loading failed."); return []
 
         tasks = []
         available_metrics = [m for m in self.settings.processing.segment_popularity_metrics
@@ -924,12 +943,15 @@ if __name__ == "__main__":
         segments_feature.load_data()
         if segments_feature.gdf is not None:
             logger.info(f"Load Data successful. Shape: {segments_feature.gdf.shape}, CRS: {segments_feature.gdf.crs}")
-            print("Sample preprocessed segments (first 5 rows):"); print(segments_feature.gdf.head())
+            # print("Sample preprocessed segments (first 5 rows):"); print(segments_feature.gdf.head())
             expected_metrics = settings.processing.segment_popularity_metrics
             actual_metrics = [m for m in expected_metrics if m in segments_feature.gdf.columns]
             logger.info(f"Expected metrics: {expected_metrics}, Found: {actual_metrics}")
-            if actual_metrics: print("\nMetrics sample:"); print(segments_feature.gdf[actual_metrics].head())
-        else: logger.error("Segments GDF is None after loading.")
+            # if actual_metrics: 
+            #     print("\nMetrics sample:")
+            #     print(segments_feature.gdf[actual_metrics].head())
+        else: 
+            logger.error("Segments GDF is None after loading.")
 
         logger.info("2. Testing Build...")
         if segments_feature.gdf is not None:

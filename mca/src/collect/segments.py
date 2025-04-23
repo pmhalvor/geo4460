@@ -131,7 +131,11 @@ def explore_segments_with_multiple_bounds(gdf, area_sizes=[1, 2, 5], point_col='
                         new_segments_count += 1
                 logging.debug(f"    Found {new_segments_count} new unique segments.")
                 # Add a small delay between successful requests to be polite
-                time.sleep(request_delay)
+                try:
+                    time.sleep(request_delay)
+                except KeyboardInterrupt:
+                    logging.info("    Process interrupted by user.")
+                    break
                 point_processed_successfully = True # Mark point as processed if at least one bound succeeded
             else:
                 logging.error(

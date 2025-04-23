@@ -60,7 +60,7 @@ class PathsConfig(BaseModel):
         # Example path, user should verify or update this default if needed
         default_factory=lambda: BASE_DIR
         / "output"
-        / "mca_20250422_2038" # TODO: Make this dynamic or user-configurable?
+        / "mca_20250423_1257" # TODO: Make this dynamic or user-configurable?
         / "prepared_roads_all_diff_lanes.gpkg", 
         # / "prepared_roads_simple_diff_lanes.gpkg",  # Alternative
         description="Path to the difference layer (e.g., roads minus bike lanes) used for sampling points.",

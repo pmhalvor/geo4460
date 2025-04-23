@@ -194,7 +194,8 @@ def main():
             # A simple approach: only keep columns present in both
             common_columns = list(set(existing_segments_gdf.columns) & set(new_segments_gdf.columns))
             # Make sure 'geometry' and 'id' (or your segment identifier) are included
-            if 'geometry' not in common_columns: common_columns.append('geometry')
+            if 'geometry' not in common_columns: 
+                common_columns.append('geometry')
             if settings.input_data.segment_id_field not in common_columns:
                  common_columns.append(settings.input_data.segment_id_field)
 
