@@ -189,6 +189,9 @@ class OutputFilesConfig(BaseModel):
     elevation_dem_raster: str = "elevation_dem.tif"
     slope_raster: str = "slope.tif"
     cost_function_raster: str = "cost_function.tif"
+    normalized_cost_distance: str = "normalized_cost_distance.tif"
+    rasterized_roads_mask: str = "rasterized_roads_mask.tif"  # Mask for roads
+    aligned_speed_raster: str = "aligned_speed.tif"  # Aligned speed raster for overlay
 
     # Feature Vectors (alternative to rasters)
     segment_popularity_vector_prefix: str = (
@@ -299,11 +302,23 @@ class ProcessingConfig(BaseModel):
     kriging_nugget: Optional[float] = None
 
     # Cost Function Settings
-    cost_slope_weight: float = 1.0
-    cost_speed_weight: float = -0.5  # Negative weight = reward
-    cost_road_restriction_value: Optional[float] = (
-        None  # Value for non-road areas if restricting
+    cost_slope_weight: float = Field(
+        default=2.0,
+        description="Weight factor for slope contribution to cost (higher value = higher cost for steep slopes)."
     )
+    cost_speed_weight: float = Field(
+        default=0.75, # Changed default to positive, logic in cost_distance uses (threshold - speed)
+        description="Weight factor for speed contribution to cost. Applied as weight * (threshold - speed)."
+    )
+    cost_speed_threshold_ms: float = Field(
+        default=6.0,
+        description="Speed threshold in m/s. Speeds below this increase cost, speeds above decrease cost."
+    )
+    cost_road_buffer_meters: float = Field(
+        default=7.5, # Increased default slightly
+        description="Buffer distance in meters around roads to define traversable area for cost calculation."
+    )
+    # cost_road_restriction_value: Optional[float] = None # Kept commented out as masking is preferred
 
     # Overlay Settings
     overlay_speed_threshold: Optional[float] = None  # Avg speed threshold for Overlay B

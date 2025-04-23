@@ -7,6 +7,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd # Add pandas import
 import rasterio
+import rasterio.warp
 from pyproj import CRS
 from shapely.geometry import Point
 
@@ -111,6 +112,33 @@ def save_vector_data(
         raise
 
 
+def get_raster_profile(path: Path) -> dict:
+    """
+    Reads and returns the profile (metadata) of a raster file.
+
+    Args:
+        path (Path): Path to the raster file.
+
+    Returns:
+        dict: The raster profile.
+
+    Raises:
+        FileNotFoundError: If the input file does not exist.
+        Exception: For other Rasterio loading errors.
+    """
+    if not path.is_file():
+        raise FileNotFoundError(f"Input raster file not found: {path}")
+    try:
+        logger.info(f"Reading profile from raster: {path}")
+        with rasterio.open(path) as src:
+            profile = src.profile
+            logger.info(f"Profile read successfully for {path}.")
+            return profile
+    except Exception as e:
+        logger.error(f"Error reading profile from raster file {path}: {e}")
+        raise
+
+
 def load_raster_data(path: Path, **kwargs) -> Tuple[np.ndarray, dict]:
     """
     Loads a raster file using Rasterio.
@@ -142,6 +170,93 @@ def load_raster_data(path: Path, **kwargs) -> Tuple[np.ndarray, dict]:
             return data, profile
     except Exception as e:
         logger.error(f"Error loading raster file {path}: {e}")
+        raise
+
+
+def align_rasters(
+    source_raster_path: Path,
+    template_raster_path: Path,
+    output_raster_path: Path,
+    resampling_method: str = "bilinear",
+):
+    """
+    Aligns a source raster to match the grid (CRS, transform, dimensions) of a template raster.
+
+    Uses rasterio.warp.reproject. 
+    For more info on resampling, see: https://pygis.io/docs/e_raster_resample.html
+
+    Args:
+        source_raster_path (Path): Path to the raster to be aligned.
+        template_raster_path (Path): Path to the raster defining the target grid.
+        output_raster_path (Path): Path to save the aligned raster.
+        resampling_method (str): Resampling method to use (e.g., 'nearest', 'bilinear', 'cubic').
+                                 Defaults to 'bilinear'.
+
+    Raises:
+        FileNotFoundError: If source or template raster does not exist.
+        Exception: For errors during reprojection/alignment.
+    """
+    if not source_raster_path.is_file():
+        raise FileNotFoundError(f"Source raster not found: {source_raster_path}")
+    if not template_raster_path.is_file():
+        raise FileNotFoundError(f"Template raster not found: {template_raster_path}")
+
+    # Ensure output directory exists
+    output_raster_path.parent.mkdir(parents=True, exist_ok=True)
+
+    logger.info(
+        f"Aligning raster '{source_raster_path.name}' to template '{template_raster_path.name}' -> '{output_raster_path.name}'"
+    )
+
+    try:
+        with rasterio.open(template_raster_path) as template_ds:
+            template_profile = template_ds.profile
+            dst_crs = template_ds.crs
+            dst_transform = template_ds.transform
+            dst_height = template_ds.height
+            dst_width = template_ds.width
+
+        with rasterio.open(source_raster_path) as src_ds:
+            # Prepare output profile based on template, but update dtype from source
+            out_profile = template_profile.copy()
+            out_profile.update(
+                {
+                    "crs": dst_crs,
+                    "transform": dst_transform,
+                    "width": dst_width,
+                    "height": dst_height,
+                    "dtype": src_ds.profile['dtype'], # Correctly access dtype from profile
+                    "nodata": src_ds.nodata, # Use source nodata value
+                    "count": src_ds.count, # Use source band count
+                }
+            )
+
+            # Open the output file for writing
+            with rasterio.open(output_raster_path, "w", **out_profile) as dst_ds:
+                # Iterate through bands if multi-band
+                for i in range(1, src_ds.count + 1):
+                    rasterio.warp.reproject(
+                        source=rasterio.band(src_ds, i),
+                        destination=rasterio.band(dst_ds, i),
+                        src_transform=src_ds.transform,
+                        src_crs=src_ds.crs,
+                        dst_transform=dst_transform,
+                        dst_crs=dst_crs,
+                        resampling=rasterio.warp.Resampling[resampling_method],
+                    )
+        logger.info(f"Successfully aligned raster saved to: {output_raster_path}")
+
+    except Exception as e:
+        logger.error(
+            f"Error aligning raster {source_raster_path} to {template_raster_path}: {e}"
+        )
+        # Clean up potentially partially written output file
+        if output_raster_path.exists():
+            try:
+                output_raster_path.unlink()
+                logger.debug(f"Removed partially written output file: {output_raster_path}")
+            except OSError as rm_e:
+                logger.warning(f"Could not remove partial output file {output_raster_path}: {rm_e}")
         raise
 
 
