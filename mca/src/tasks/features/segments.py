@@ -470,12 +470,13 @@ class Segments(FeatureBase):
                     # For now, don't add placeholder, rely on merge.
 
                 time.sleep(self.settings.processing.strava_api_request_delay)
-                # --- DEV ONLY ---
-                i += 1
-                if i > 5: 
-                    logger.info("DEV ONLY: Skipping rest of detail fetching.")
-                    break
-                # ----------------
+                # # --- DEV ONLY --- 
+                # NOTE Reactivate this block when developing, to avoid excessive API calls
+                # i += 1
+                # if i > 5: 
+                #     logger.info("DEV ONLY: Skipping rest of detail fetching.")
+                #     break
+                # # ----------------
 
             if newly_fetched_details:
                 new_details_df = pd.DataFrame(newly_fetched_details)
