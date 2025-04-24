@@ -32,10 +32,14 @@ downloads/
 *.tif
 *.tfw
 *.xml
-
-
+*.gdb
+*.gpkg
+911*.csv 
+# 911* is the prefix for Oslo traffic data funnily enough
 
 # mca
 ## strava 
-*token*
 .env
+*token*
+activities/
+activity_details/

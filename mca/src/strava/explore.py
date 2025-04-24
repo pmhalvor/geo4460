@@ -3,19 +3,42 @@ import geopandas as gpd
 import os
 import pandas as pd
 import polyline
+import json  # Added import
 
 from shapely.geometry import LineString
-from authorize import get_token
 import folium
 import webbrowser
 
+# Try different import paths to work regardless of current directory
+try:
+    from src.strava.authorize import get_token
+except ImportError:
+    try:
+        from authorize import get_token
+    except ImportError:
+        from strava.authorize import get_token
 
 # ensure valid token is present
 get_token()
 
+# Get the base directory (project root) to make paths absolute
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-SEGMENT_SHAPEFILE_PATH = "mca/data/segments/segments_oslo_4258.shp"
-SEGMENT_METADATA_PATH = "mca/data/segments/segments_oslo.geojson"
+# Define paths with os.path.join to be platform-independent
+SEGMENT_SHAPEFILE_PATH = os.path.join(
+    BASE_DIR, "data", "segments", "segments_oslo_4258.shp"
+)
+SEGMENT_METADATA_PATH = os.path.join(
+    BASE_DIR, "data", "segments", "segments_oslo.geojson"
+)
+
+# Define path for activities
+ACTIVITY_DATA_PATH = os.path.join(BASE_DIR, "data", "activities")
+
+# Create directories if they don't exist
+os.makedirs(os.path.dirname(SEGMENT_SHAPEFILE_PATH), exist_ok=True)
+os.makedirs(os.path.dirname(SEGMENT_METADATA_PATH), exist_ok=True)
+os.makedirs(ACTIVITY_DATA_PATH, exist_ok=True)  # Added directory creation
 
 
 def explore_segments(
@@ -69,7 +92,87 @@ def explore_segments(
         return response.json()
     else:
         print(f"Failed to explore segments: {response.status_code} {response.text}")
-        return None
+        return response.status_code
+
+
+def get_athlete_activities(per_page=100):
+    """
+    Fetch athlete activities from the Strava API.
+    https://developers.strava.com/docs/reference/#api-Activities-getLoggedInAthleteActivities
+    Fetches all activities page by page.
+    """
+    url = "https://www.strava.com/api/v3/athlete/activities"
+    token = get_token()
+    all_activities = []
+    page = 1
+
+    print("Fetching athlete activities...")
+
+    while True:
+        params = {
+            "access_token": token,
+            "page": page,
+            "per_page": per_page,
+        }
+
+        response = requests.get(url, params=params)
+
+        if response.status_code == 200:
+            activities = response.json()
+            if not activities:  # No more activities found
+                print("No more activities found.")
+                break
+
+            print(f"Fetched page {page} with {len(activities)} activities.")
+            all_activities.extend(activities)
+            page += 1
+
+            # Small check to prevent infinite loops in case API behaves unexpectedly
+            if len(activities) < per_page:
+                print("Last page reached.")
+                break
+        elif response.status_code == 429:
+            print("Rate limit exceeded. Please wait before making more requests.")
+            print(
+                f"NOTE! On rerun, make sure to start collection at page {page} to avoid duplicates."
+            )
+            # Consider adding a wait mechanism here if needed
+            break
+        else:
+            print(f"Failed to fetch activities: {response.status_code} {response.text}")
+            break  # Stop fetching on error
+
+    print(f"Total activities fetched: {len(all_activities)}")
+    return all_activities
+
+
+def store_activities(activities, activity_type_filter="Ride"):
+    """
+    Store fetched activities as individual JSON files, filtering by type.
+    """
+    if not activities:
+        print("No activities to store.")
+        return
+
+    stored_count = 0
+    for activity in activities:
+        if activity.get("type") == activity_type_filter:
+            activity_id = activity.get("id")
+            if not activity_id:
+                print("Skipping activity with no ID.")
+                continue
+
+            file_path = os.path.join(ACTIVITY_DATA_PATH, f"activity_{activity_id}.json")
+            try:
+                with open(file_path, "w") as f:
+                    json.dump(activity, f, indent=4)
+                stored_count += 1
+            except IOError as e:
+                print(f"Error writing file {file_path}: {e}")
+
+    print(
+        f"Stored {stored_count} activities of type '{activity_type_filter}' in {ACTIVITY_DATA_PATH}"
+    )
 
 
 def parse_segments_points(segments):
@@ -112,9 +215,9 @@ def update_geodata(
     print(f"Segment data file {segment_metadata_path} updated.")
 
     # isolate only the LineString and ids
-    points_gdf = combined_gdf[["id", "geometry"]]
-    points_gdf_4258 = points_gdf.to_crs(epsg=4258)
-    points_gdf_4258.to_file(segment_shapefile_path, driver="ESRI Shapefile")
+    # points_gdf = combined_gdf[["id", "geometry"]]
+    # points_gdf_4258 = points_gdf.to_crs(epsg=4258)
+    # points_gdf_4258.to_file(segment_shapefile_path, driver="ESRI Shapefile")
 
 
 def store_segments(segments):
@@ -181,12 +284,53 @@ def get_segment_details(segment):
 
     if response.status_code == 200:
         return response.json()
+    elif response.status_code == 429:
+        print("Rate limit exceeded. Please wait before making more requests.")
+        return response.status_code
     else:
         print(f"Failed to get segment details: {response.status_code} {response.text}")
         return None
 
 
+def get_activity_details(activity_id):
+    """
+    Get activity details using the Strava API, including splits.
+    https://developers.strava.com/docs/reference/#api-Activities-getActivityById
+    """
+    url = f"https://www.strava.com/api/v3/activities/{activity_id}"
+    token = get_token()
+
+    params = {
+        "access_token": token,
+        # 'include_all_efforts': False # Not needed for splits_metric
+    }
+
+    print(f"Fetching details for activity ID: {activity_id}")
+    response = requests.get(url, params=params)
+
+    if response.status_code == 200:
+        return response.json()
+    elif response.status_code == 429:
+        print(f"Rate limit exceeded for activity {activity_id}. Please wait.")
+        return 429  # Return status code to signal rate limit
+    elif response.status_code == 404:
+        print(f"Activity {activity_id} not found.")
+        return None
+    else:
+        print(
+            f"Failed to get activity details for {activity_id}: {response.status_code} {response.text}"
+        )
+        return None
+
+
 if __name__ == "__main__":
+    # --- Example usage for fetching and storing activities ---
+    # fetched_activities = get_athlete_activities()
+    # if fetched_activities:
+    #    store_activities(fetched_activities, activity_type_filter="Ride")
+    # --------------------------------------------------------
+
+    # --- Original example usage for segments ---
     # from locations import locations
 
     # example = locations["frognerparken"]

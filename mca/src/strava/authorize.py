@@ -4,6 +4,7 @@ import time
 import json
 import os
 import requests
+import datetime
 
 from dotenv import load_dotenv
 
@@ -13,7 +14,12 @@ CLIENT_ID = os.getenv("STRAVA_CLIENT_ID")
 CLIENT_SECRET = os.getenv("STRAVA_CLIENT_SECRET")
 
 REDIRECT_URI = "http://localhost:3333/callback"
-TOKEN_PATH = "mca/data/token.json"
+
+
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+TOKEN_PATH = os.path.join(BASE_DIR, "data", "token.json")
+print(f"Token path: {TOKEN_PATH}")
 
 
 def get_authorization_url():
@@ -24,15 +30,25 @@ def get_authorization_url():
         f"&response_type=code"
         f"&redirect_uri={REDIRECT_URI}"
         f"&approval_prompt=force"
-        f"&scope=read"
+        f"&scope=read,activity:read_all"
     )
     return auth_url
 
 
 def authorize():
-    print("Starting flask server at mca/src/strava/flask_app.py from ", os.getcwd())
-    # TODO make more robust path handling
-    flask_process = subprocess.Popen(["python", "mca/src/strava/flask_app.py"])
+    print("Starting flask server...")
+
+    flask_app_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "src",
+        "strava",
+        "flask_app.py",
+    )
+
+    token_dir = os.path.dirname(os.path.abspath(TOKEN_PATH))
+    os.makedirs(token_dir, exist_ok=True)
+
+    flask_process = subprocess.Popen(["python", flask_app_path])
     time.sleep(1)  # waits for server to be fully loaded
 
     auth_url = get_authorization_url()
@@ -43,21 +59,26 @@ def authorize():
     while True:
         time.sleep(1)
 
-        response = requests.get("http://localhost:3333/code")
-        if response.status_code == 200:
-            auth_code = response.text
-            break
-        else:
-            print("Waiting for user to authorize...")
+        try:
+            response = requests.get("http://localhost:3333/code")
+            if response.status_code == 200:
+                auth_code = response.text
+                break
+        except requests.exceptions.ConnectionError:
+            pass
+
+        print("Waiting for user to authorize...")
 
     flask_process.kill()
 
     token_data = exchange_code_for_token(auth_code)
 
-    with open(TOKEN_PATH, "w") as f:
+    # Use absolute path for token file
+    token_file_path = os.path.abspath(TOKEN_PATH)
+    with open(token_file_path, "w") as f:
         json.dump(token_data, f, indent=4)
 
-    print(f"Authorization successful! Find token at {os.getcwd()}/{TOKEN_PATH}")
+    print(f"Authorization successful! Token saved to {token_file_path}")
 
 
 def exchange_code_for_token(auth_code):
@@ -110,14 +131,18 @@ def refresh_token(token_data):
 
     response = requests.post(token_url, data=payload)
     if response.status_code == 200:
-        token_data = response.json()
+        refresh_token_data = response.json()
 
-        # Save the new tokens to credentials or a secure location
-        with open("token.json", "w") as f:
-            json.dump(token_data, f, indent=4)
+        refresh_token_data["athlete"] = token_data["athlete"]
+        refresh_token_data["athlete"]["updated_at"] = datetime.datetime.now(
+            datetime.UTC
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        with open(TOKEN_PATH, "w") as f:
+            json.dump(refresh_token_data, f, indent=4)
 
         print("Access token refreshed successfully.")
-        return token_data
+        return refresh_token_data
     else:
         print(f"Failed to refresh token: {response.status_code} {response.text}")
         print("Trying to authorize again...")
@@ -128,7 +153,7 @@ def refresh_token(token_data):
 
 if __name__ == "__main__":
 
-    # authorize()
+    authorize()
 
     print("Getting token...")
     token = get_token()
