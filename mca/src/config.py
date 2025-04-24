@@ -321,6 +321,9 @@ class ProcessingConfig(BaseModel):
     )
     # cost_road_restriction_value: Optional[float] = None # Kept commented out as masking is preferred
 
+    # displays
+    display_segments: bool = False  # Whether to display segments on the map
+
     # Overlay Settings
     overlay_speed_threshold: Optional[float] = None  # Avg speed threshold for Overlay B
     overlay_traffic_threshold: Optional[float] = (

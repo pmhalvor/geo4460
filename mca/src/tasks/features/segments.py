@@ -411,13 +411,19 @@ class Segments(FeatureBase):
                 # Load cache, potentially containing more columns than desired
                 temp_cache_df = pd.read_csv(cache_path)
                 # Attempt to infer ID type for comparison/merge
-                id_dtype = initial_gdf[segment_id_field].dtype
+                id_dtype = type(initial_gdf[segment_id_field].iloc[0])
                 if not temp_cache_df.empty and segment_id_field in temp_cache_df.columns:
+                    logger.debug(f"Converting {segment_id_field} to {id_dtype} for cache comparison.")
                     temp_cache_df[segment_id_field] = temp_cache_df[segment_id_field].astype(id_dtype)
+                    logger.debug(f"Converted {segment_id_field} to {type(temp_cache_df[segment_id_field].iloc[0])} for cache comparison.")
 
                 # Keep only desired columns that exist in the loaded cache
                 cols_to_keep_from_cache = [col for col in desired_cache_cols if col in temp_cache_df.columns]
                 logger.info(f"Columns to keep from cache: {cols_to_keep_from_cache}")
+
+                # Drop duplicates 
+                temp_cache_df = temp_cache_df.drop_duplicates(subset=[segment_id_field], keep='last')
+
                 if cols_to_keep_from_cache:
                     segment_details_cache_df = temp_cache_df[cols_to_keep_from_cache]
                     logger.info(f"Loaded {len(segment_details_cache_df)} segment details for columns {cols_to_keep_from_cache} from CSV cache: {cache_path}")
@@ -439,8 +445,14 @@ class Segments(FeatureBase):
              logger.info("Cache is empty or missing essential columns for validation.")
 
 
+        logger.debug(f"Initial gdf has columns: {initial_gdf.columns.tolist()}")
+        logger.debug(f"Initial id column type: {type(initial_gdf[segment_id_field].iloc[0])}")
+        logger.debug(f"Details cache has columns: {segment_details_cache_df.columns.tolist()}")
+        logger.debug(f"Details cache id column type: {type(segment_details_cache_df[segment_id_field].iloc[0])}")
+        logger.debug(f"Filtering out {len(cached_ids)} cached segment IDs from initial gdf.")
         ids_to_fetch = initial_gdf[~initial_gdf[segment_id_field].isin(cached_ids)][segment_id_field].unique().tolist()
 
+        newly_fetched_ids = set()
         newly_fetched_details = []
         needs_saving = False
         if ids_to_fetch:
@@ -464,6 +476,7 @@ class Segments(FeatureBase):
                     # We specifically DO NOT extract 'map' or 'polyline' here for caching
 
                     newly_fetched_details.append(detail_subset)
+                    newly_fetched_ids.add(segment_id)
                     needs_saving = True
                 else:
                     logger.warning(f"Failed to fetch details for segment ID: {segment_id}")
@@ -480,6 +493,7 @@ class Segments(FeatureBase):
                 # ----------------
 
             if newly_fetched_details:
+                logger.info(f"Fetched details for segment ids: \n{newly_fetched_ids}.")
                 new_details_df = pd.DataFrame(newly_fetched_details)
                 # Ensure ID types match before concat
                 new_details_df = pd.DataFrame(newly_fetched_details)
@@ -894,7 +908,12 @@ class Segments(FeatureBase):
             save_vector_data(metric_gdf, output_vector_path, driver="GPKG")
             logger.info(f"Saved popularity vector: {output_vector_path}")
             self.output_paths[f"{output_path_key}_{metric}"] = output_vector_path
-            # Add Folium Display Call
+        except Exception as e: 
+            logger.error(f"Error saving vector for {metric}: {e}", exc_info=True);
+            return None
+
+        # Add Folium Display Call
+        if settings.processing.display_segments:
             try:
                 map_output_path = output_vector_path.with_suffix(".html")
                 display_vectors_on_folium_map(
@@ -907,9 +926,6 @@ class Segments(FeatureBase):
             except Exception as map_e:
                 logger.error(f"Error generating Folium map for {metric}: {map_e}", exc_info=True)
             return str(output_vector_path)
-        except Exception as e: 
-            logger.error(f"Error saving vector for {metric}: {e}", exc_info=True); return None
-
 
     def build(self):
         """Builds popularity vectors (or rasters) for configured metrics."""
