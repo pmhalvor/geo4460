@@ -1,6 +1,7 @@
 import logging
 import sys
 from pathlib import Path
+import dask # Import dask
 from dask.distributed import Client, LocalCluster
 from whitebox import WhiteboxTools
 
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)  # Define logger earlier
 def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     """
     Main task function to build all features by initializing and running
-    individual feature classes.
+    individual feature classes. Uses Dask to parallelize independent features.
 
     Args:
         settings (AppConfig): Application configuration object.
@@ -57,50 +58,119 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     logger.info("Data loading phase complete.")
 
     # Build features using Dask where applicable (build methods handle dask.delayed)
-    logger.info("Building feature layers...")
-    # TODO make sure dask gets all tasks into single list for compute()
-    # in other words, rewrite this part
-    segment_raster_paths = segments.build()  # Returns list of paths
-    speed_raster_path = heatmap.build()  # Returns path or None
-    traffic_raster_path = traffic.build()  # Returns path or None
-    road_vector_paths = roads.build()  # Returns dict of paths
-    dem_path, slope_path = elevation.build()  # Returns two paths or None
+    logger.info("Collecting Dask build tasks for independent features...")
+    # Collect delayed tasks from independent features
+    # elevation.build() returns a single delayed object representing a tuple
+    segments_task = segments.build()
+    heatmap_task = heatmap.build()
+    traffic_task = traffic.build()
+    roads_task = roads.build()
+    elevation_task = elevation.build() # This task computes (dem_path, slope_path)
 
-    # Initialize and build Cost distance (depends on slope)
-    cost_distance = CostDistance(
-        settings,
-        wbt,
-        slope_raster_path=Path(slope_path),
-        roads_raster_path=Path(road_vector_paths.get("roads_rasterized")), # If roads are rasterized
-        speed_raster_path=(
-            Path(speed_raster_path) if speed_raster_path else None
-        ),
-    )
+    delayed_tasks = [
+        segments_task,
+        heatmap_task,
+        traffic_task,
+        roads_task,
+        elevation_task, # Add the single elevation task object
+    ]
 
-    # Consolidate results, including paths to saved intermediate files
+    logger.info(f"Collected {len(delayed_tasks)} Dask tasks. Computing...")
+    # Compute independent tasks in parallel
+    # Use scheduler="distributed" if a Dask client is running, otherwise defaults might work
+    computed_results = dask.compute(*delayed_tasks, scheduler="distributed")
+    logger.info("Independent feature computation complete.")
+
+    # Extract results (order matches delayed_tasks)
+    segment_raster_paths = computed_results[0] # List of paths
+    speed_raster_path = computed_results[1]    # Path or None
+    traffic_raster_path = computed_results[2]  # Path or None
+    road_vector_paths = computed_results[3]    # Dict of paths
+    # Elevation result is a tuple (dem_path, slope_path) or (None, None)
+    elevation_results = computed_results[4]
+    dem_path, slope_path = elevation_results if elevation_results else (None, None)
+
+    # --- Build Dependent Features ---
+    logger.info("Building dependent feature: Cost Distance...")
+    cost_distance = None # Initialize to None
+    cost_raster_path = None # Initialize path to None
+    cost_raster_delayed = None # Initialize delayed task to None
+
+    roads_vector_input_path = road_vector_paths.get("samferdsel_all") 
+
+    if slope_path and roads_vector_input_path:
+        logger.info(f"Inputs found: Slope='{slope_path}', Roads Vector='{roads_vector_input_path}'")
+        try:
+            # Convert paths to Path objects only if they are not None
+            slope_raster_path_obj = Path(slope_path)
+            roads_vector_path_obj = Path(roads_vector_input_path)
+            speed_raster_path_obj = Path(speed_raster_path) if speed_raster_path else None
+
+            # Initialize CostDistance with VECTOR roads path
+            cost_distance = CostDistance(
+                settings=settings,
+                wbt=wbt,
+                slope_raster_path=slope_raster_path_obj,
+                roads_vector_path=roads_vector_path_obj, 
+                speed_raster_path=speed_raster_path_obj,
+            )
+
+            # Get the delayed task for building the cost raster
+            cost_raster_delayed = cost_distance.build()
+
+            if cost_raster_delayed is not None:
+                logger.info("Cost Distance build task created. Will compute separately.")
+                # Compute the cost distance task
+                # dask.compute returns a tuple, get the first element
+                cost_raster_path = dask.compute(cost_raster_delayed, scheduler="distributed")[0]
+                if cost_raster_path and Path(cost_raster_path).exists():
+                    logger.info(f"Cost Distance build complete. Output: {cost_raster_path}")
+                    # Convert string path back to Path object for consistency in results dict
+                    cost_raster_path = Path(cost_raster_path)
+                else:
+                    logger.error("Cost Distance computation finished but output path is invalid or file not found.")
+                    cost_raster_path = None # Reset path if computation failed internally
+            else:
+                logger.error("CostDistance.build() failed to return a delayed task.")
+
+        except FileNotFoundError as e:
+             logger.error(f"Initialization error for CostDistance: Input file not found - {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Failed to initialize or build Cost Distance: {e}", exc_info=True)
+            cost_distance = None # Ensure object is None if init failed
+            cost_raster_path = None
+    else:
+        missing = []
+        if not slope_path: missing.append("slope_path")
+        if not roads_vector_input_path: missing.append("roads_vector_path (check key in road_vector_paths dict)")
+        logger.warning(f"Skipping Cost Distance build because required inputs are missing: {', '.join(missing)}")
+
+
+    # --- Consolidate Results ---
+    logger.info("Consolidating all results...")
     results = {
-        "segments": segments,  # Keep object for potential later use
-        "segment_rasters": segment_raster_paths,
+        # Feature objects
+        "segments": segments,
         "heatmap": heatmap,
-        "speed_raster": speed_raster_path,
         "traffic": traffic,
-        "traffic_raster": traffic_raster_path,
         "roads": roads,
-        "road_vectors": road_vector_paths,
         "elevation": elevation,
-        "dem_raster": dem_path,
-        "slope_raster": slope_path,
-        "cost_distance": cost_distance,
-        # "cost_raster": cost_raster_path,
-        # Add paths to prepared vector data as well
+        "cost_distance": cost_distance, # Might be None if build failed/skipped
+        # Direct outputs from computation
+        "segment_rasters": segment_raster_paths, # List of paths
+        "speed_raster": speed_raster_path,       # Path or None
+        "traffic_raster": traffic_raster_path,     # Path or None
+        "road_vectors": road_vector_paths,       # Dict of paths
+        "dem_raster": dem_path,                  # Path or None
+        "slope_raster": slope_path,                # Path or None
+        "cost_raster": cost_raster_path,         # Path or None
+        # Paths to prepared vector data (from feature object properties)
         "prepared_segments": segments.output_paths.get("prepared_segments_gpkg"),
         "prepared_activities": heatmap.output_paths.get("prepared_activities_gpkg"),
         "prepared_traffic": traffic.output_paths.get("prepared_traffic_points_gpkg"),
         "prepared_roads": roads.output_paths.get("prepared_roads_gpkg"),
         "prepared_lanes": roads.output_paths.get("prepared_bike_lanes_gpkg"),
-        "prepared_roads_no_lanes": roads.output_paths.get(
-            "prepared_roads_no_lanes_gpkg"
-        ),
+        "prepared_roads_no_lanes": roads.output_paths.get("prepared_roads_no_lanes_gpkg"),
         "prepared_contours": elevation.output_paths.get("prepared_contours_gpkg"),
     }
 
@@ -165,14 +235,19 @@ if __name__ == "__main__":
         sys.exit(1)  # Exit if WBT fails, as it's needed
 
     # Initialize Dask client for parallel processing
-    # Using LocalCluster for simple standalone execution
+    client = None
+    cluster = None
     try:
-        cluster = LocalCluster()
+        # Using LocalCluster for simple standalone execution
+        # Adjust n_workers and threads_per_worker based on your system
+        cluster = LocalCluster(n_workers=settings.processing.dask_workers, threads_per_worker=1)
         client = Client(cluster)
         logger.info(f"Dask client started: {client.dashboard_link}")
     except Exception as e:
-        logger.error(f"Failed to start Dask client: {e}")
-        client = None  # Allow proceeding without Dask if it fails? Or exit?
+        logger.error(f"Failed to start Dask client: {e}. Will attempt sequential execution.")
+        # If Dask fails, we might want to fall back or exit depending on requirements.
+        # For now, the dask.compute call might default to a synchronous scheduler.
+        # sys.exit(1) # Optionally exit if Dask is critical
 
     # --- Test build_features_task ---
     try:
@@ -187,13 +262,18 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Error during build_features_task test: {e}", exc_info=True)
 
-    # Clean up Dask client
+    # Clean up Dask client and cluster
     if client:
         try:
             client.close()
-            cluster.close()
-            logger.info("Dask client and cluster closed.")
+            logger.info("Dask client closed.")
         except Exception as e:
-            logger.warning(f"Error closing Dask client/cluster: {e}")
+            logger.warning(f"Error closing Dask client: {e}")
+    if cluster:
+        try:
+            cluster.close()
+            logger.info("Dask cluster closed.")
+        except Exception as e:
+            logger.warning(f"Error closing Dask cluster: {e}")
 
     logger.info("--- Standalone Test Finished ---")

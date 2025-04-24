@@ -223,8 +223,9 @@ class OutputFilesConfig(BaseModel):
 class ProcessingConfig(BaseModel):
     """Parameters controlling the processing steps."""
 
-    # WhiteboxTools Settings
+    # Compute Settings
     wbt_verbose: bool = False
+    dask_workers: int = 4  # Number of Dask workers for parallel processing
 
     # General Raster Settings
     output_crs_epsg: int = 25833  # UTM Zone 33N for Oslo

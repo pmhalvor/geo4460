@@ -1,9 +1,8 @@
 import logging
 import sys
 import time
-from pathlib import Path
 
-# Third-party libraries
+from dask.distributed import Client, LocalCluster
 from whitebox import WhiteboxTools
 
 # Local application/library specific imports
@@ -28,6 +27,9 @@ def main():
         handlers=[logging.StreamHandler(sys.stdout)],  # Add FileHandler if needed
     )
     logger.info("--- Starting MCA Workflow ---")
+
+    cluster = LocalCluster(n_workers=settings.processing.dask_workers, threads_per_worker=1)
+    client = Client(cluster)
 
     # Initialize WhiteboxTools
     wbt = None  # Initialize wbt to None
@@ -111,7 +113,14 @@ def main():
         logger.error(
             "--- Workflow Halted: An unexpected error occurred ---", exc_info=True
         )
+        logger.error(f"Error: {e}")
         sys.exit(1)
+
+    # --- Cleanup ---
+    # Close Dask client and cluster
+    client.close()
+    cluster.close()
+    logger.info("Dask client and cluster closed.")
 
     # --- Workflow Completion ---
     end_time = time.time()

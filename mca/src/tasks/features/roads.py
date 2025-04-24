@@ -15,7 +15,7 @@ class Roads(FeatureBase):
     and calculates differences between road layers and bike lanes.
     """
 
-    def __init__(self, settings: BaseModel):
+    def __init__(self, settings: BaseModel , wbt: object = None):
         super().__init__(settings, None)
         self.gdf_samferdsel = None
         self.gdf_bike_lanes = None
