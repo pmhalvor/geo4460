@@ -9,6 +9,7 @@ from whitebox import WhiteboxTools
 from src.config import settings
 from src.utils import setup_output_dir
 from src.tasks.build_features import build_features_task
+from src.tasks.combine_features import combine_features_task # Import the combine task
 
 
 logger = logging.getLogger(__name__)
@@ -73,10 +74,17 @@ def main():
 
         # --- Task 2: Combine Features (Overlays) ---
         logger.info("--- Starting Task 2: Combine Features ---")
-        # This task will take outputs from Task 1 and perform overlays
-        # combined_results = combine_features_task(feature_results, settings=settings, wbt=wbt)
-        # logger.info("--- Task 2: Combine Features Completed ---")
-        logger.warning("Combine Features task not yet implemented.")  # Placeholder
+        # This task takes outputs from Task 1 and performs overlays
+        combined_results = combine_features_task(feature_results, settings=settings, wbt=wbt)
+        logger.info("--- Task 2: Combine Features Completed ---")
+        # Log the paths of the generated overlays
+        logger.info("Combined Feature Results (Overlay Paths):")
+        for key, path in combined_results.items():
+            if path:
+                logger.info(f"  - {key}: {path}")
+            else:
+                logger.warning(f"  - {key}: Not generated or failed.")
+
 
         # --- Task 3: Evaluate Results ---
         logger.info("--- Starting Task 3: Evaluate Results ---")

@@ -272,7 +272,7 @@ class ProcessingConfig(BaseModel):
         description="Maximum number of retries after hitting a rate limit before giving up on a point.",
     )
     segment_collection_simplify_tolerance_projected: float = 0.001  # Meters
-    segment_details_max_api_calls: int = 45 # During dev, change to <=5
+    segment_details_max_api_calls: int = 5 # During dev, change to <=5
 
     traffic_buffer_distance: float = 500.0  # Meters, for buffering traffic stations
     traffic_interpolation_power: float = 2.0  # For IDW interpolation
@@ -326,11 +326,22 @@ class ProcessingConfig(BaseModel):
     display_segments: bool = False  # Whether to display segments on the map
 
     # Overlay Settings
-    overlay_speed_threshold: Optional[float] = None  # Avg speed threshold for Overlay B
-    overlay_traffic_threshold: Optional[float] = (
-        None  # Traffic density threshold for Overlay C
+    overlay_popularity_threshold: Optional[float] = Field(
+        default=0.5, # Example: Normalized popularity score (e.g., efforts_per_age > 0.5)
+        description="Popularity threshold (normalized) for Overlay A and subsequent overlays."
     )
-    overlay_cost_threshold: Optional[float] = None  # Cost threshold for Overlay D
+    overlay_speed_threshold: Optional[float] = Field(
+        default=5.0, # Example: m/s (18 km/h)
+        description="Average speed threshold (m/s) for Overlay B."
+    )
+    overlay_traffic_threshold: Optional[float] = Field(
+        default=100, # Example: vehicles per hour/day (depending on traffic data aggregation)
+        description="Traffic density threshold for Overlay C."
+    )
+    overlay_cost_threshold: Optional[float] = Field(
+        default=0.75, # Example: Normalized cost (lower is better, so threshold might be < X)
+        description="Normalized cost distance threshold for Overlay D (e.g., keep segments with cost < threshold)."
+    )
 
     # Evaluation Settings
     top_n_recommendations: int = 20  # Number of top segments to highlight

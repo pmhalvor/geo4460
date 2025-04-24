@@ -558,6 +558,261 @@ def display_raster_on_folium_map(
         logger.error(f"Error generating Folium map for {raster_path}: {map_e}", exc_info=True)
 
 
+# --- New Function for Combined Overlay Map ---
+
+def display_overlay_folium_map(
+    overlay_gdfs: dict[str, gpd.GeoDataFrame],
+    input_rasters: dict[str, Path],
+    output_html_path_str: str,
+    target_crs_epsg: int,
+    tooltip_columns: Optional[list] = None,
+    zoom_start: int = 12,
+    tiles: str = 'CartoDB positron',
+):
+    """
+    Displays multiple vector overlay layers (A, B, C, D) and their corresponding
+    input feature rasters (speed, traffic, cost, etc.) on a single Folium map.
+
+    Args:
+        overlay_gdfs (dict[str, gpd.GeoDataFrame]): Dictionary mapping overlay keys
+            (e.g., 'A', 'B', 'C', 'D') to their GeoDataFrames. Assumes GDFs have CRS.
+        input_rasters (dict[str, Path]): Dictionary mapping input feature names
+            (e.g., 'speed', 'traffic', 'cost', 'popularity') to their raster file Paths.
+        output_html_path_str (str): Path to save the output HTML map.
+        target_crs_epsg (int): The expected EPSG code of the input rasters' CRS.
+                               Used for raster bounds transformation.
+        tooltip_columns (Optional[list]): List of column names from overlay GDFs
+                                          to show in tooltips.
+        zoom_start (int): Initial zoom level for the map. Defaults to 12.
+        tiles (str): Folium tile layer name. Defaults to 'CartoDB positron'.
+    """
+    # Import necessary libraries here
+    try:
+        import folium
+        import rasterio
+        import rasterio.warp
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as colors
+        import io
+        import base64
+        from pathlib import Path
+        from branca.colormap import linear # For raster legends if needed
+    except ImportError as e:
+        logger.error(f"Folium display skipped: Missing required library ({e}). Install folium, matplotlib, rasterio, branca.")
+        return
+
+    output_html_path = Path(output_html_path_str)
+    output_html_path.parent.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"Generating combined overlay Folium map: {output_html_path}")
+
+    # --- Determine Map Bounds and Center ---
+    # Use bounds from the final overlay (e.g., 'D') if available, otherwise first available
+    bounds_gdf = None
+    for key in ['D', 'C', 'B', 'A']:
+        gdf = overlay_gdfs.get(f'overlay_{key.lower()}') # Match keys used in combine_features
+        if gdf is not None and not gdf.empty:
+            try:
+                if gdf.crs is None:
+                     logger.warning(f"Overlay {key} GDF missing CRS, cannot use for bounds.")
+                     continue
+                if gdf.crs.to_epsg() != 4326:
+                    bounds_gdf = gdf.to_crs(epsg=4326)
+                else:
+                    bounds_gdf = gdf
+                # Validate geometry after potential reprojection
+                bounds_gdf = bounds_gdf[bounds_gdf.geometry.is_valid & ~bounds_gdf.geometry.is_empty]
+                if not bounds_gdf.empty:
+                    logger.info(f"Using bounds from Overlay {key} for map extent.")
+                    break # Found a valid GDF for bounds
+            except Exception as reproj_e:
+                logger.warning(f"Could not reproject Overlay {key} for bounds: {reproj_e}")
+                bounds_gdf = None # Reset if reprojection failed
+
+    if bounds_gdf is None or bounds_gdf.empty:
+        logger.warning("No valid overlay GDF found to determine map bounds. Using default location.")
+        center_lat, center_lon = 59.9139, 10.7522 # Default Oslo center
+        map_bounds = None
+    else:
+        total_bounds = bounds_gdf.total_bounds
+        if np.isnan(total_bounds).any() or np.isinf(total_bounds).any():
+             logger.error(f"Invalid bounds calculated from overlays: {total_bounds}. Using default location.")
+             center_lat, center_lon = 59.9139, 10.7522 # Default Oslo center
+             map_bounds = None
+        else:
+            center_lat = (total_bounds[1] + total_bounds[3]) / 2
+            center_lon = (total_bounds[0] + total_bounds[2]) / 2
+            # Define bounds for potential fit_bounds call later if needed
+            map_bounds = [[total_bounds[1], total_bounds[0]], [total_bounds[3], total_bounds[2]]] # SW, NE
+
+    # --- Create Base Map ---
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_start, tiles=tiles)
+
+    # --- Add Input Raster Layers (Hidden by Default) ---
+    raster_cmaps = {
+        'speed': 'plasma',
+        'traffic': 'inferno',
+        'cost': 'viridis_r', # Reversed viridis for cost (lower is better)
+        'popularity': 'magma',
+        # Add more specific rasters if needed
+        'traffic_morning': 'coolwarm',
+        'traffic_daytime': 'hot',
+        'traffic_evening': 'bone',
+        'slope': 'coolwarm',
+        'elevation': 'terrain',
+    }
+    default_raster_cmap = 'gray'
+
+    for name, raster_path in input_rasters.items():
+        if raster_path and raster_path.exists():
+            logger.info(f"Processing raster layer: {name} ({raster_path})")
+            try:
+                with rasterio.open(raster_path) as src:
+                    r_bounds = src.bounds
+                    r_crs = src.crs
+                    r_data = src.read(1, masked=True)
+
+                    if not r_crs:
+                        logger.warning(f"Skipping raster '{name}': Missing CRS.")
+                        continue
+                    # Verify CRS matches expected target_crs_epsg for consistency check
+                    if r_crs.to_epsg() != target_crs_epsg:
+                         logger.warning(f"Raster '{name}' CRS ({r_crs}) differs from expected target EPSG:{target_crs_epsg}.")
+                         # Proceeding, but transformation might be less accurate if CRS is wrong
+
+                    # Transform bounds to WGS84
+                    r_bounds_4326 = rasterio.warp.transform_bounds(r_crs, "EPSG:4326", *r_bounds)
+                    r_map_bounds = [[r_bounds_4326[1], r_bounds_4326[0]], [r_bounds_4326[3], r_bounds_4326[2]]]
+
+                    # Prepare image data
+                    cmap = plt.get_cmap(raster_cmaps.get(name, default_raster_cmap))
+                    valid_data = r_data.compressed()
+                    if valid_data.size == 0:
+                        logger.warning(f"Skipping raster '{name}': No valid data.")
+                        continue
+
+                    # Normalize (consider percentile for robustness)
+                    vmin = np.percentile(valid_data, 5)
+                    vmax = np.percentile(valid_data, 95)
+                    if vmin == vmax: vmin, vmax = vmin - 1e-6, vmax + 1e-6 # Avoid constant value issue
+                    norm = colors.Normalize(vmin=vmin, vmax=vmax)
+                    rgba_data = cmap(norm(r_data), bytes=True)
+                    if r_data.mask.any():
+                        rgba_data[r_data.mask] = (0, 0, 0, 0) # Transparency
+
+                    # Convert to base64 PNG
+                    buf = io.BytesIO()
+                    plt.imsave(buf, rgba_data, format="png")
+                    img_uri = f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode('utf-8')}"
+
+                    # Add ImageOverlay
+                    folium.raster_layers.ImageOverlay(
+                        image=img_uri,
+                        bounds=r_map_bounds,
+                        opacity=0.6, # Slightly less opaque for context layers
+                        name=f"Input: {name.replace('_', ' ').title()}", # Layer name
+                        show=False, # Hidden by default
+                    ).add_to(m)
+                    logger.info(f"Added raster layer '{name}' to map (hidden).")
+
+            except Exception as raster_e:
+                logger.error(f"Failed to process raster layer '{name}' ({raster_path}): {raster_e}", exc_info=True)
+        elif raster_path:
+            logger.warning(f"Input raster file not found: {raster_path} for key '{name}'")
+
+
+    # --- Add Vector Overlay Layers ---
+    overlay_colors = {
+        'A': '#1f77b4', # Blue
+        'B': '#2ca02c', # Green
+        'C': '#ff7f0e', # Orange
+        'D': '#d62728', # Red
+    }
+    default_overlay_color = '#888888' # Grey
+
+    for key_upper in ['A', 'B', 'C', 'D']:
+        key_lower = f'overlay_{key_upper.lower()}'
+        gdf = overlay_gdfs.get(key_lower)
+
+        if gdf is not None and not gdf.empty:
+            logger.info(f"Processing vector overlay layer: {key_upper}")
+            # Reproject and validate
+            try:
+                if gdf.crs is None:
+                    raise ValueError("Missing CRS")
+                gdf_4326 = gdf.to_crs(epsg=4326) if gdf.crs.to_epsg() != 4326 else gdf.copy()
+
+                # Clean geometries (null, empty, invalid with buffer(0))
+                gdf_4326 = gdf_4326.dropna(subset=['geometry'])
+                gdf_4326 = gdf_4326[~gdf_4326.geometry.is_empty]
+                invalid_mask = ~gdf_4326.geometry.is_valid
+                if invalid_mask.sum() > 0:
+                    logger.info(f"Attempting buffer(0) on {invalid_mask.sum()} invalid geometries in Overlay {key_upper}")
+                    gdf_4326.loc[invalid_mask, 'geometry'] = gdf_4326.loc[invalid_mask].geometry.buffer(0)
+                    # Re-filter after buffer
+                    gdf_4326 = gdf_4326.dropna(subset=['geometry'])
+                    gdf_4326 = gdf_4326[~gdf_4326.geometry.is_empty]
+
+                if gdf_4326.empty:
+                    logger.warning(f"Overlay {key_upper} is empty after cleaning. Skipping.")
+                    continue
+
+                # drop potentially erroneous columns
+                gdf_4326 = gdf_4326.drop(columns=["created_at", "points"])
+
+                # Prepare tooltip/popup (use only columns present in this specific GDF)
+                available_tooltip_cols = [col for col in (tooltip_columns or []) if col in gdf_4326.columns]
+                tooltip = folium.features.GeoJsonTooltip(fields=available_tooltip_cols) if available_tooltip_cols else None
+                # popup = folium.features.GeoJsonPopup(fields=available_tooltip_cols) if available_tooltip_cols else None # Optional popup
+
+                # Define style for this layer
+                layer_color = overlay_colors.get(key_upper, default_overlay_color)
+                def layer_style_function(feature, color=layer_color): # Capture color
+                    return {
+                        'color': color,
+                        'weight': 3,
+                        'opacity': 0.85,
+                    }
+
+                # Add GeoJson layer
+                folium.GeoJson(
+                    gdf_4326,
+                    style_function=layer_style_function,
+                    tooltip=tooltip,
+                    # popup=popup,
+                    name=f"Overlay {key_upper}", # Simple name for layer control
+                ).add_to(m)
+                logger.info(f"Added vector overlay layer '{key_upper}' to map.")
+
+            except Exception as vector_e:
+                 logger.error(f"Failed to process vector overlay layer '{key_upper}': {vector_e}", exc_info=True)
+
+        elif gdf is not None and gdf.empty:
+             logger.info(f"Skipping Overlay {key_upper} as it is empty.")
+        else:
+             logger.warning(f"Overlay GDF not found for key: {key_lower}")
+
+
+    # --- Finalize Map ---
+    if map_bounds:
+        try:
+            m.fit_bounds(map_bounds) # Fit map to the bounds of the final overlay
+        except Exception as fit_e:
+            logger.warning(f"Could not fit map bounds: {fit_e}")
+
+    folium.LayerControl().add_to(m)
+
+    # Save map
+    try:
+        m.save(str(output_html_path))
+        logger.info(f"Combined overlay Folium map saved successfully to: {output_html_path}")
+    except Exception as save_e:
+        logger.error(f"Error saving combined Folium map: {save_e}", exc_info=True)
+
+
+# --- Original display_vectors_on_folium_map ---
+
 def display_vectors_on_folium_map(
     gdf: gpd.GeoDataFrame,
     output_html_path_str: str,
@@ -759,10 +1014,16 @@ def display_vectors_on_folium_map(
         }
         return style
 
+    gdf_map_display = gdf_4326_validated.copy() # Work on a copy for display modifications
+    # drop 'points' column due to HTML errors
+    if 'points' in gdf_map_display.columns:
+        gdf_map_display = gdf_map_display.drop(columns=['points'])
+        logger.info("Dropped 'points' column from GeoDataFrame for Folium display.")
+
     # Add GeoJson layer
-    # Use the validated GDF
+    # Use the cleaned GDF copy
     geojson_layer = folium.GeoJson(
-        gdf_4326_validated,
+        gdf_map_display, # Use the cleaned data
         style_function=style_function,
         tooltip=tooltip,
         popup=popup,
