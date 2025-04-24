@@ -272,6 +272,7 @@ class ProcessingConfig(BaseModel):
         description="Maximum number of retries after hitting a rate limit before giving up on a point.",
     )
     segment_collection_simplify_tolerance_projected: float = 0.001  # Meters
+    segment_details_max_api_calls: int = 45 # During dev, change to <=5
 
     traffic_buffer_distance: float = 500.0  # Meters, for buffering traffic stations
     traffic_interpolation_power: float = 2.0  # For IDW interpolation

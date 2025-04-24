@@ -484,13 +484,12 @@ class Segments(FeatureBase):
                     # For now, don't add placeholder, rely on merge.
 
                 time.sleep(self.settings.processing.strava_api_request_delay)
-                # --- DEV ONLY --- 
-                # NOTE Reactivate this block when developing, to avoid excessive API calls
+                
+                # Respect API rate limits
                 i += 1
-                if i > 5: 
-                    logger.info("DEV ONLY: Skipping rest of detail fetching.")
+                if i > self.settings.processing.segment_details_max_api_calls: 
+                    logger.info("Reached segment_details_max_api_calls. Skipping rest of detail fetching.")
                     break
-                # ----------------
 
             if newly_fetched_details:
                 logger.info(f"Fetched details for segment ids: \n{newly_fetched_ids}.")
@@ -913,7 +912,7 @@ class Segments(FeatureBase):
             return None
 
         # Add Folium Display Call
-        if settings.processing.display_segments:
+        if self.settings.processing.display_segments:
             try:
                 map_output_path = output_vector_path.with_suffix(".html")
                 display_vectors_on_folium_map(
