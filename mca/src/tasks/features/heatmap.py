@@ -281,6 +281,10 @@ class Heatmap(FeatureBase):
             logger.warning("No points generated from activity segments.")
             return gpd.GeoDataFrame() # Return empty GDF
         logger.info(f"Generated {len(points_gdf)} total points with 'average_speed'.")
+
+        # set crs 
+        points_gdf = points_gdf.to_crs(epsg=25833)  # Set to EPSG:25833 # TODO make dynamic
+        logger.info(f"Converted points GeoDataFrame CRS: {points_gdf.crs} (using .to_crs(25833))")
         return points_gdf
 
     def _sample_points(self, points_gdf):
@@ -737,6 +741,49 @@ class Heatmap(FeatureBase):
                 min_points=self.settings.processing.heatmap_idw_min_points,
             )
             idw_success = True # Assume success if no exception
+            logger.info(
+                f"WBT IDW interpolation completed successfully. Output: {output_raster_path}"
+            )
+            logger.info("Mapping vack to EPSG:4326...")
+            # --- Map output raster back to EPSG:4326 ---
+            def fix_crs_and_reproject(input_path: str, src_epsg="EPSG:25833", dst_epsg="EPSG:4326"):
+                import subprocess
+                input_path = Path(input_path)
+                temp_path = input_path.with_name(f"{input_path.stem}_crs{input_path.suffix}")
+                output_path = input_path.with_name(f"{input_path.stem}_4326{input_path.suffix}")
+                assert not output_path.exists() or "4326" in str(output_path), f"Output path name seems off: {output_path}"
+
+                # Step 1: Assign missing CRS using gdal_translate (not gdal_edit.py!)
+                subprocess.run([
+                    "gdal_translate",
+                    "-a_srs", src_epsg,
+                    str(input_path),
+                    str(temp_path)
+                ], check=True)
+
+                logger.info(f"Temporary raster with CRS {src_epsg} saved to: {temp_path}")
+
+                # Step 2: Reproject to EPSG:4326
+                subprocess.run([
+                    "gdalwarp",
+                    "-t_srs", dst_epsg,
+                    "-r", "bilinear",
+                    str(temp_path),
+                    str(output_path)
+                ], check=True)
+
+                logger.info(f"Reprojected raster with CRS {dst_epsg} saved to: {output_path}")
+
+                # Step 3: Double check reprojection using gdalinfo
+                subprocess.run([
+                    "gdalinfo",
+                    str(output_path)
+                ], check=True)
+
+
+            fix_crs_and_reproject(str(output_raster_path))
+
+            logger.info(f"Reprojected raster saved to: {str(output_raster_path)}")
 
         except Exception as e:
             logger.error(f"Error during WBT IDW interpolation call: {e}", exc_info=True)
@@ -753,7 +800,7 @@ class Heatmap(FeatureBase):
                 # Explicit cleanup can be done here if needed: temp_dir_obj.cleanup()
             else:
                  logger.warning("Temporary directory object not created, skipping cleanup log.")
-
+            
 
         # --- Verification & RMSE Calculation (only if IDW ran) ---
         if idw_success:
@@ -848,6 +895,11 @@ if __name__ == "__main__":
                     if computed_result is not None:
                         path_str = computed_result # Should be the path string
                         raster_path = Path(path_str)
+                        logger.info(f"Raster path: {raster_path}")
+                        if "4326" not in str(raster_path):
+                            raster_path = raster_path.with_name(f"{raster_path.stem}_4326{raster_path.suffix}")
+                            logger.info(f"Using reprojected raster path: {raster_path}")
+
                         logger.info(f"Generated Average Speed Raster: {path_str}")
                         try:
                             # 1. First create a basic raster-only map (for backward compatibility)
