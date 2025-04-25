@@ -21,6 +21,7 @@ from src.tasks.features.feature_base import FeatureBase
 from src.utils import (
     save_vector_data,
     polyline_to_points,
+    display_multi_layer_on_folium_map,
 )
 
 
@@ -544,6 +545,129 @@ class Heatmap(FeatureBase):
 
         return train_rmse, test_rmse # Return calculated RMSE values
 
+    def create_multi_layer_visualization(self, output_raster_path, train_gdf, test_gdf):
+        """
+        Creates a visualization showing train/test points, activity segments, and the output raster
+        using the display_multi_layer_on_folium_map utility function.
+        
+        Args:
+            output_raster_path (Path): Path to the output IDW raster.
+            train_gdf (gpd.GeoDataFrame): Training points GeoDataFrame with 'avg_speed' column.
+            test_gdf (gpd.GeoDataFrame): Testing points GeoDataFrame with 'avg_speed' column.
+            
+        Returns:
+            str: Path to the generated HTML map, or None if visualization failed.
+        """
+
+        if not output_raster_path.is_file():
+            logger.error(f"Raster file not found for visualization: {output_raster_path}")
+            return None
+        
+        if train_gdf is None or test_gdf is None:
+            logger.error("Train or test GeoDataFrame is None, cannot create visualization")
+            return None
+            
+        logger.info("Creating multi-layer visualization of heatmap components...")
+        
+        # Define output HTML path
+        output_html_path = self._get_output_path("heatmap_visualization_html")
+        
+        try:
+            # Prepare layer configurations for the multi-layer visualization
+            layers = []
+            target_crs_epsg = self.settings.processing.output_crs_epsg
+            
+            # 1. Add activity segments layer (original LineStrings)
+            # No need to convert segments to points - use them directly as polylines
+            if self.gdf is not None and not self.gdf.empty:
+                segment_path = self._get_output_path("activity_segments_viz")
+                # Save a copy for visualization
+                save_vector_data(self.gdf, segment_path)
+                
+                # Check if using ESRI Shapefile which truncates column names to 10 chars
+                if segment_path.suffix.lower() == '.shp':
+                    # Map original column names to their truncated versions for shapefiles
+                    tooltip_cols = ['activity_i', 'split', 'average_sp', 'split_dist']
+                    logger.info("Using truncated column names for shapefile tooltip: " + str(tooltip_cols))
+                else:
+                    # Use full column names for other formats
+                    tooltip_cols = ['activity_id', 'split', 'average_speed', 'split_dist_m']
+                    
+                layers.append({
+                    'path': segment_path,
+                    'name': 'Activity Segments (Polylines)',
+                    'type': 'vector',
+                    'vector': {
+                        'style_column': 'average_sp' if segment_path.suffix.lower() == '.shp' else 'average_speed',
+                        'cmap': 'plasma',
+                        'weight': 3,  # Slightly thicker to make polylines more visible
+                        'tooltip_cols': tooltip_cols,
+                        'show': True
+                    }
+                })
+            
+            # 2. Add training points layer
+            if not train_gdf.empty:
+                train_path = self._get_output_path("heatmap_train_points_viz")
+                save_vector_data(train_gdf, train_path)
+                layers.append({
+                    'path': train_path,
+                    'name': 'Training Points',
+                    'type': 'vector',
+                    'vector': {
+                        'style_column': 'avg_speed',
+                        'cmap': 'viridis',
+                        'radius': 4,
+                        'tooltip_cols': ['avg_speed'],
+                        'show': True
+                    }
+                })
+            
+            # 3. Add testing points layer
+            if not test_gdf.empty:
+                test_path = self._get_output_path("heatmap_test_points_viz")
+                save_vector_data(test_gdf, test_path)
+                layers.append({
+                    'path': test_path,
+                    'name': 'Testing Points',
+                    'type': 'vector',
+                    'vector': {
+                        'style_column': 'avg_speed',
+                        'cmap': 'viridis',
+                        'radius': 4,
+                        'tooltip_cols': ['avg_speed'],
+                        'show': True
+                    }
+                })
+            
+            # 4. Add the interpolated raster layer
+            layers.append({
+                'path': output_raster_path,
+                'name': 'Average Speed Raster (IDW)',
+                'type': 'raster',
+                'raster': {
+                    'cmap': 'plasma',
+                    'opacity': 0.7,
+                    'nodata_transparent': True,
+                    'target_crs_epsg': target_crs_epsg,
+                    'show': True
+                }
+            })
+            
+            # Create the multi-layer map
+            display_multi_layer_on_folium_map(
+                layers=layers,
+                output_html_path_str=str(output_html_path),
+                map_zoom=12,
+                map_tiles='CartoDB positron'
+            )
+            
+            logger.info(f"Multi-layer visualization created and saved to: {output_html_path}")
+            return str(output_html_path)
+            
+        except Exception as e:
+            logger.error(f"Error creating multi-layer visualization: {e}", exc_info=True)
+            return None
 
     @dask.delayed
     def _build_average_speed_raster(self):
@@ -723,19 +847,51 @@ if __name__ == "__main__":
                     # --- Display Raster on Folium Map using utility function ---
                     if computed_result is not None:
                         path_str = computed_result # Should be the path string
+                        raster_path = Path(path_str)
                         logger.info(f"Generated Average Speed Raster: {path_str}")
                         try:
-                            # Define output path for the map
-                            map_output_path = settings.paths.output_dir / f"{Path(path_str).stem}_map.html"
-                            # Call the utility function
+                            # 1. First create a basic raster-only map (for backward compatibility)
+                            map_output_path = settings.paths.output_dir / f"{raster_path.stem}_map.html"
                             display_raster_on_folium_map(
                                 raster_path_str=path_str,
                                 output_html_path_str=str(map_output_path),
                                 target_crs_epsg=settings.processing.output_crs_epsg,
-                                # Optional: Add other parameters like cmap_name, opacity if needed
+                                cmap_name='plasma'  # Use consistent colormap
                             )
+                            logger.info(f"Basic raster visualization created: {map_output_path}")
+                            
+                            # 2. Then create the multi-layer visualization with train/test points and segments
+                            logger.info("Creating multi-layer visualization with points and segments...")
+                            
+                            # We need to recreate the points data for visualization
+                            # Recreate points (simplified pipeline just for visualization)
+                            points_gdf = heatmap_feature._convert_segments_to_points(heatmap_feature.gdf)
+                            if not points_gdf.empty:
+                                # Sample points
+                                points_gdf_sampled = heatmap_feature._sample_points(points_gdf)
+                                # Filter points (optional)
+                                points_gdf_filtered = heatmap_feature._filter_points_by_boundary(points_gdf_sampled)
+                                # Split into train/test
+                                train_gdf, test_gdf = heatmap_feature._split_train_test(points_gdf_filtered)
+                                
+                                if train_gdf is not None and test_gdf is not None:
+                                    # Create multi-layer visualization
+                                    multi_viz_path = heatmap_feature.create_multi_layer_visualization(
+                                        output_raster_path=raster_path,
+                                        train_gdf=train_gdf,
+                                        test_gdf=test_gdf
+                                    )
+                                    if multi_viz_path:
+                                        logger.info(f"Multi-layer visualization created: {multi_viz_path}")
+                                    else:
+                                        logger.warning("Failed to create multi-layer visualization")
+                                else:
+                                    logger.warning("Train/test split failed, skipping multi-layer visualization")
+                            else:
+                                logger.warning("No points generated, skipping multi-layer visualization")
+                            
                         except Exception as display_e:
-                            logger.error(f"Error displaying raster {path_str} on map: {display_e}", exc_info=True)
+                            logger.error(f"Error displaying visualizations for {path_str}: {display_e}", exc_info=True)
                     else:
                         logger.warning("No valid raster path generated after computing build task. Skipping map display.")
                 else:

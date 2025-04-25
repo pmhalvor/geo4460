@@ -1,14 +1,24 @@
+import base64
 import logging
-import shutil
-from pathlib import Path
-from typing import Optional, Union, Tuple
-
 import geopandas as gpd
+import io
 import numpy as np
-import pandas as pd # Add pandas import
+import pandas as pd 
 import rasterio
 import rasterio.warp
+import shutil
+
+from branca.colormap import linear
 from pyproj import CRS
+from pathlib import Path
+from typing import (
+    Any,
+    Dict,
+    List, 
+    Optional, 
+    Tuple,
+    Union, 
+)
 from shapely.geometry import Point
 
 
@@ -585,20 +595,15 @@ def display_overlay_folium_map(
         tiles (str): Folium tile layer name. Defaults to 'CartoDB positron'.
     """
     # Import necessary libraries here
-    try:
-        import folium
-        import rasterio
-        import rasterio.warp
-        import numpy as np
-        import matplotlib.pyplot as plt
-        import matplotlib.colors as colors
-        import io
-        import base64
-        from pathlib import Path
-        from branca.colormap import linear # For raster legends if needed
-    except ImportError as e:
-        logger.error(f"Folium display skipped: Missing required library ({e}). Install folium, matplotlib, rasterio, branca.")
-        return
+    import folium
+    import rasterio
+    import rasterio.warp
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as colors
+    import io
+    import base64
+    from pathlib import Path
 
     output_html_path = Path(output_html_path_str)
     output_html_path.parent.mkdir(parents=True, exist_ok=True)
@@ -693,7 +698,8 @@ def display_overlay_folium_map(
                     # Normalize (consider percentile for robustness)
                     vmin = np.percentile(valid_data, 5)
                     vmax = np.percentile(valid_data, 95)
-                    if vmin == vmax: vmin, vmax = vmin - 1e-6, vmax + 1e-6 # Avoid constant value issue
+                    if vmin == vmax: 
+                        vmin, vmax = vmin - 1e-6, vmax + 1e-6 # Avoid constant value issue
                     norm = colors.Normalize(vmin=vmin, vmax=vmax)
                     rgba_data = cmap(norm(r_data), bytes=True)
                     if r_data.mask.any():
@@ -1200,7 +1206,7 @@ def display_multi_layer_on_folium_map(
     layers: List[Dict[str, Any]],
     output_html_path_str: str,
     map_center: Optional[Tuple[float, float]] = None,
-    map_zoom: int = 12,
+    map_zoom: int = 9,
     map_tiles: str = 'CartoDB positron',
     folium_crs: str = 'EPSG4326', # Folium expects WGS84
 ):
@@ -1241,6 +1247,7 @@ def display_multi_layer_on_folium_map(
     import folium
     import matplotlib.pyplot as plt
     import matplotlib.colors as colors
+
     
     logger.info(f"Generating multi-layer Folium map: {output_html_path_str}")
     output_html_path = Path(output_html_path_str)
@@ -1250,7 +1257,11 @@ def display_multi_layer_on_folium_map(
 
     # --- Create Base Map ---
     # We'll set the location and zoom after processing layers if map_center is None
-    m = folium.Map(tiles=map_tiles, crs=folium_crs) # Use Folium's CRS setting
+    m = folium.Map(
+        location=[10.7522, 59.9139],  # Oslo (59.9139, 10.7522) as default
+        zoom_start=map_zoom, 
+        tiles=map_tiles,
+    )
 
     # --- Process and Add Layers ---
     for layer_config in layers:
@@ -1324,10 +1335,13 @@ def display_multi_layer_on_folium_map(
                     if not values.empty:
                         style_vmin = values.min()
                         style_vmax = values.max()
-                        if style_vmin == style_vmax: style_vmin -= 0.5; style_vmax += 0.5
+                        if style_vmin == style_vmax: 
+                            style_vmin -= 0.5
+                            style_vmax += 0.5
                         style_norm = colors.Normalize(vmin=style_vmin, vmax=style_vmax)
                         style_cmap = plt.get_cmap(cmap_name)
-                    else: style_col = None # Fallback
+                    else: 
+                        style_col = None # Fallback
 
                 def vector_style_func(feature, scol=style_col, norm=style_norm, cmap=style_cmap, dcol=default_color, lweight=weight):
                     val = feature['properties'].get(scol)
@@ -1347,11 +1361,62 @@ def display_multi_layer_on_folium_map(
                 cols_to_drop = ['points'] # Add others if needed
                 gdf_display = gdf_4326.drop(columns=[c for c in cols_to_drop if c in gdf_4326.columns])
 
+                # Handle field name truncation in shapefiles - check actual available columns
+                # ESRI Shapefile format truncates column names to 10 characters
+                actual_tooltip_cols = []
+                actual_popup_cols = []
+                
+                if tooltip_cols:
+                    # Create a mapping from truncated to original column names
+                    available_cols = set(gdf_display.columns)
+                    # Try to match truncated names
+                    for col in tooltip_cols:
+                        if col in available_cols:
+                            actual_tooltip_cols.append(col)
+                        elif len(col) > 10:
+                            # Try to find the truncated version
+                            truncated_col = col[:10]
+                            if truncated_col in available_cols:
+                                logger.info(f"Using truncated column name '{truncated_col}' instead of '{col}' for tooltip")
+                                actual_tooltip_cols.append(truncated_col)
+                            else:
+                                logger.warning(f"Column '{col}' not found, even with truncation to '{truncated_col}'. Skipping.")
+                        else:
+                            logger.warning(f"Column '{col}' not found in the data. Skipping.")
+                
+                # Same for popup columns
+                if popup_cols:
+                    available_cols = set(gdf_display.columns)
+                    for col in popup_cols:
+                        if col in available_cols:
+                            actual_popup_cols.append(col)
+                        elif len(col) > 10:
+                            truncated_col = col[:10]
+                            if truncated_col in available_cols:
+                                logger.info(f"Using truncated column name '{truncated_col}' instead of '{col}' for popup")
+                                actual_popup_cols.append(truncated_col)
+                            else:
+                                logger.warning(f"Column '{col}' not found, even with truncation to '{truncated_col}'. Skipping.")
+                        else:
+                            logger.warning(f"Column '{col}' not found in the data. Skipping.")
+
+                if actual_tooltip_cols:
+                    logger.info(f"Using tooltip columns: {actual_tooltip_cols}")
+                    tooltip = folium.features.GeoJsonTooltip(fields=actual_tooltip_cols)
+                else:
+                    tooltip = None
+                    
+                if actual_popup_cols:
+                    logger.info(f"Using popup columns: {actual_popup_cols}")
+                    popup = folium.features.GeoJsonPopup(fields=actual_popup_cols)
+                else:
+                    popup = None
+
                 folium.GeoJson(
                     gdf_display,
                     style_function=vector_style_func,
-                    tooltip=folium.features.GeoJsonTooltip(fields=tooltip_cols) if tooltip_cols else None,
-                    popup=folium.features.GeoJsonPopup(fields=popup_cols) if popup_cols else None,
+                    tooltip=tooltip,
+                    popup=popup,
                     marker=folium.CircleMarker(radius=radius, fill=True), # Style points
                     name=layer_name # Name for the sub-layer within the group (optional)
                 ).add_to(feature_group)
@@ -1410,7 +1475,8 @@ def display_multi_layer_on_folium_map(
 
                     vmin = np.percentile(valid_data, 5)
                     vmax = np.percentile(valid_data, 95)
-                    if vmin == vmax: vmin, vmax = vmin - 1e-6, vmax + 1e-6
+                    if vmin == vmax: 
+                        vmin, vmax = vmin - 1e-6, vmax + 1e-6
                     norm = colors.Normalize(vmin=vmin, vmax=vmax)
                     rgba_data = cmap(norm(r_data), bytes=True)
                     if nodata_transparent and r_data.mask.any():

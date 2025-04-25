@@ -193,6 +193,12 @@ class OutputFilesConfig(BaseModel):
     rasterized_roads_mask: str = "rasterized_roads_mask.tif"  # Mask for roads
     aligned_speed_raster: str = "aligned_speed.tif"  # Aligned speed raster for overlay
 
+    # heatmap visualizations
+    heatmap_visualization_html: str = "heatmap_visualization.html"  
+    activity_segments_viz: str = "activity_segments_visualization.html"  
+    heatmap_train_points_viz: str = "heatmap_train_points_visualization.html"
+    heatmap_test_points_viz: str = "heatmap_test_points_visualization.html"
+
     # Feature Vectors (alternative to rasters)
     segment_popularity_vector_prefix: str = (
         "segment_popularity_vector"  # e.g., segment_popularity_vector_athletes_per_age.gpkg
