@@ -1208,10 +1208,11 @@ def display_multi_layer_on_folium_map(
     map_center: Optional[Tuple[float, float]] = None,
     map_zoom: int = 8,
     map_tiles: str = 'CartoDB positron',
-    folium_crs: str = 'EPSG4326', # Folium expects WGS84
 ):
     """
     Displays multiple vector and raster layers on a Folium map with layer control.
+    NOTE: Folium expects all layers to be in EPSG:4326 (WGS84) for proper display.
+    This funciton includes inline reprojection to EPSG:4326 on mismatch.
 
     Args:
         layers (List[Dict[str, Any]]): A list of dictionaries, each defining a layer.
@@ -1261,7 +1262,7 @@ def display_multi_layer_on_folium_map(
         location=[59.9139, 10.7522],  # Oslo (59.9139, 10.7522) as default
         zoom_start=map_zoom, 
         tiles=map_tiles,
-        # crs=folium_crs, # Use the specified CRS
+        # crs='EPSG4326', # WARNING: Setting crs in Folium causes unexpected behavior
     )
 
     # --- Process and Add Layers ---
@@ -1439,8 +1440,7 @@ def display_multi_layer_on_folium_map(
 
             # --- Handle Raster Layers ---
             elif layer_type == 'raster':
-                # target_crs_epsg = layer_options.get('target_crs_epsg')
-                target_crs_epsg = "EPSG:4326"
+                target_crs_epsg = "EPSG:4326"  # TODO clean inline 
                 if target_crs_epsg is None:
                     logger.warning(f"Skipping raster layer '{layer_name}': 'target_crs_epsg' missing in raster options.")
                     continue
@@ -1448,14 +1448,6 @@ def display_multi_layer_on_folium_map(
                 cmap_name = layer_options.get('cmap', 'viridis')
                 opacity = layer_options.get('opacity', 0.7)
                 nodata_transparent = layer_options.get('nodata_transparent', True)
-
-
-                logger.info(f"Checking raster layer info before loading: '{layer_name}'")
-                import subprocess
-                subprocess.run([
-                    "gdalinfo",
-                    str(layer_path)
-                ], check=True)
 
                 with rasterio.open(layer_path) as src:
                     r_bounds = src.bounds
@@ -1466,7 +1458,8 @@ def display_multi_layer_on_folium_map(
                         logger.warning(f"Skipping raster '{layer_name}': Missing CRS.")
                         continue
                     if r_crs.to_epsg() != target_crs_epsg:
-                         logger.warning(f"Raster '{layer_name}' CRS ({r_crs}) differs from expected target EPSG:{target_crs_epsg}.")
+                        logger.error(f"Raster '{layer_name}' CRS ({r_crs}) differs from expected target EPSG:{target_crs_epsg}.")
+                        logger.warning("Resulting visuals will be warped.")
 
                     # Transform bounds to WGS84
                     r_bounds_4326 = rasterio.warp.transform_bounds(r_crs, "EPSG:4326", *r_bounds)
@@ -1493,50 +1486,10 @@ def display_multi_layer_on_folium_map(
                         rgba_data[r_data.mask] = (0, 0, 0, 0)
 
                     # Convert to base64 PNG
-                    # buf = io.BytesIO()
-                    # plt.imsave(buf, rgba_data, format="png")
-                    # --- more robust way to save PNG, preserving aspect ratio ---
-                    def save_data_to_png(r_data, rgba_data, r_bounds_4326):
-                        height, width = r_data.shape
-                        dpi = 100
-                        figsize = (width / dpi, height / dpi)
-
-                        lat_per_pixel = (r_bounds_4326[3] - r_bounds_4326[1]) / height
-                        lon_per_pixel = (r_bounds_4326[2] - r_bounds_4326[0]) / width
-
-                        # Shrink bounds by ½ pixel in all directions
-                        adjusted_bounds = [
-                            [r_bounds_4326[1] + 0.5 * lat_per_pixel, r_bounds_4326[0] + 0.5 * lon_per_pixel],
-                            [r_bounds_4326[3] - 0.5 * lat_per_pixel, r_bounds_4326[2] - 0.5 * lon_per_pixel],
-                        ]
-
-                        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-                        ax.set_position([0, 0, 1, 1])
-                        ax.axis("off")
-                        ax.imshow(rgba_data)
-                        buf = io.BytesIO()
-                        fig.canvas.print_png(buf)
-                        plt.close(fig)
-
-                        img_uri = f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode('utf-8')}"
-
-                        # Optional debug logs
-                        logger.info(f"Raster bounds in EPSG:4326: {r_bounds_4326}")
-                        logger.info(f"Adjusted bounds used for overlay: {adjusted_bounds}")
-                        pixel_width_deg = (r_bounds_4326[2] - r_bounds_4326[0]) / width
-                        pixel_height_deg = (r_bounds_4326[3] - r_bounds_4326[1]) / height
-                        logger.info(f"Pixel size (lat/lon): {pixel_width_deg:.6f}° x {pixel_height_deg:.6f}°")
-
-                        return img_uri, adjusted_bounds
-                    
-                    img_uri, r_map_bounds = save_data_to_png(r_data, rgba_data, r_bounds_4326)
-
-                    # --- Sanity check for bounds ---
-                    pixel_size_meters = src.transform[0]
-                    logger.info("SANITY CHECK:")
-                    logger.info(f"Original pixel size: {pixel_size_meters} m")
-                    logger.info("SANITY CHECK COMPLETED")
-                    # ------------------------------------------------------------
+                    buf = io.BytesIO()
+                    plt.imsave(buf, rgba_data, format="png")
+                    img_uri = f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode('utf-8')}"
+                    buf.close()
 
                     # Add ImageOverlay to the feature group
                     folium.raster_layers.ImageOverlay(

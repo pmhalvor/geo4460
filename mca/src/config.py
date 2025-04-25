@@ -234,7 +234,9 @@ class ProcessingConfig(BaseModel):
     dask_workers: int = 4  # Number of Dask workers for parallel processing
 
     # General Raster Settings
-    output_crs_epsg: int = 25833  # UTM Zone 33N for Oslo
+    interpolation_crs_epsg: int = 25833  # UTM Zone 33N for Oslo # TODO remove 
+    map_crs_epsg: int = 4326  # WGS 84 for map display
+    output_crs_epsg: int = 25833  # UTM Zone 33N for wbt interpolation
     output_cell_size: float = 15.0  # Meters, adjust as needed
     seed: int = 42  # Random seed for reproducibility
     train_test_split_fraction: float = 0.8  # Fraction of data for training
@@ -288,12 +290,12 @@ class ProcessingConfig(BaseModel):
     slope_units: str = "degrees"  # 'degrees' or 'percent'
 
     # Heatmap (Average Speed) IDW Settings
-    heatmap_idw_cell_size: float = 25.0  # Cell size for the output raster (meters)
+    heatmap_idw_cell_size: float = 10.0  # Cell size for the output raster (meters)
     heatmap_idw_weight: float = 1.0  # Weight parameter for IDW
     heatmap_idw_radius: float = 500.0  # Search radius for IDW (meters)
     heatmap_idw_min_points: int = 150  # Minimum number of points required within radius
     heatmap_sample_fraction: float = (
-        0.5  # Fraction of speed points to build raster from
+        0.75  # Fraction of speed points to build raster from
     )
 
     # Elevation settings 
