@@ -303,7 +303,7 @@ class Traffic(FeatureBase):
                 logger.error("Failed to load Oslo boundary layer.")
                 return None
 
-            target_crs_epsg = self.settings.processing.output_crs_epsg
+            target_crs_epsg = self.settings.processing.interpolation_crs_epsg  # N50 gdb in EPSG:25833 crs
             if oslo_boundary_gdf.crs.to_epsg() != target_crs_epsg:
                 logger.info(f"Reprojecting boundary to EPSG:{target_crs_epsg}")
                 oslo_boundary_gdf = oslo_boundary_gdf.to_crs(epsg=target_crs_epsg)

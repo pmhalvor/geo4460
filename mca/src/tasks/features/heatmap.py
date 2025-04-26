@@ -851,17 +851,7 @@ if __name__ == "__main__":
 
                         logger.info(f"Generated Average Speed Raster: {path_str}")
                         try:
-                            # 1. First create a basic raster-only map (for backward compatibility)
-                            map_output_path = settings.paths.output_dir / f"{raster_path.stem}_map.html"
-                            display_raster_on_folium_map(
-                                raster_path_str=path_str,
-                                output_html_path_str=str(map_output_path),
-                                target_crs_epsg=settings.processing.output_crs_epsg,
-                                cmap_name='plasma'  # Use consistent colormap
-                            )
-                            logger.info(f"Basic raster visualization created: {map_output_path}")
-                            
-                            # 2. Then create the multi-layer visualization with train/test points and segments
+                            # Create the multi-layer visualization with train/test points and segments
                             logger.info("Creating multi-layer visualization with points and segments...")
                             
                             multi_viz_path = heatmap_feature.create_multi_layer_visualization(

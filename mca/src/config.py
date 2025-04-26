@@ -235,9 +235,9 @@ class ProcessingConfig(BaseModel):
     dask_workers: int = 4  # Number of Dask workers for parallel processing
 
     # General Raster Settings
-    interpolation_crs_epsg: int = 25833  # UTM Zone 33N for Oslo # TODO remove 
+    interpolation_crs_epsg: int = 25833  # UTM Zone 33N for Oslo
     map_crs_epsg: int = 4326  # WGS 84 for map display
-    output_crs_epsg: int = 25833  # UTM Zone 33N for wbt interpolation
+    output_crs_epsg: int = 25833  # UTM Zone 33N for wbt  # TODO remove from collect/*.py
     output_cell_size: float = 15.0  # Meters, adjust as needed
     seed: int = 42  # Random seed for reproducibility
     train_test_split_fraction: float = 0.8  # Fraction of data for training
@@ -332,7 +332,7 @@ class ProcessingConfig(BaseModel):
     # cost_road_restriction_value: Optional[float] = None # Kept commented out as masking is preferred
 
     # displays
-    display_segments: bool = False  # Whether to display segments on the map
+    display_segments: bool = True  # Whether to display segments on the map
 
     # Overlay Settings
     overlay_popularity_threshold: Optional[float] = Field(
@@ -348,7 +348,7 @@ class ProcessingConfig(BaseModel):
         description="Traffic density threshold for Overlay C."
     )
     overlay_cost_threshold: Optional[float] = Field(
-        default=0.75, # Example: Normalized cost (lower is better, so threshold might be < X)
+        default=0.3, # Example: Normalized cost (lower is better)
         description="Normalized cost distance threshold for Overlay D (e.g., keep segments with cost < threshold)."
     )
 

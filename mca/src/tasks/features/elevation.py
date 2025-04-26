@@ -630,7 +630,7 @@ if __name__ == "__main__":
         logger.info(f"Using Output Directory: {settings.paths.output_dir}")
         interpolation_method_config = settings.processing.interpolation_method_dem
         logger.info(f"Configured DEM Interpolation Method: {interpolation_method_config}")
-        logger.info(f"Target Output CRS: EPSG:{settings.processing.output_crs_epsg}")
+        logger.info(f"Interpolation CRS: EPSG:{settings.processing.interpolation_crs_epsg}")
         logger.info(f"Map Visualization CRS: EPSG:{settings.processing.map_crs_epsg}")
 
         # --- Initialize WBT ---

@@ -78,9 +78,9 @@ class FeatureBase(ABC):
         if gdf is None:
             return None
             
-        # If no specific target CRS is provided, use the output_crs_epsg from settings
+        # If no specific target CRS is provided, use the interpolation_crs_epsg from settings
         if target_crs_epsg is None:
-            target_crs_epsg = self.settings.processing.output_crs_epsg
+            target_crs_epsg = self.settings.processing.interpolation_crs_epsg
             
         target_crs = f"EPSG:{target_crs_epsg}"
         
