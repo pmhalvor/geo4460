@@ -12,7 +12,7 @@ from src.tasks.features.heatmap import Heatmap
 from src.tasks.features.traffic import Traffic
 from src.tasks.features.roads import Roads
 from src.tasks.features.elevation import Elevation
-from tasks.features.cost import CostLayer
+from src.tasks.features.cost import CostLayer
 
 
 logger = logging.getLogger(__name__)  # Define logger earlier

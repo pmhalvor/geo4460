@@ -727,21 +727,6 @@ if __name__ == "__main__":
                         if cost_raster_path and Path(cost_raster_path).exists():
                             logger.info(f"Generated Normalized Cost Raster: {cost_raster_path}")
                             
-                            # # Display simple map of cost raster
-                            # try:
-                            #     map_output_path = settings.paths.output_dir / f"{Path(cost_raster_path).stem}_map.html"
-                            #     display_raster_on_folium_map(
-                            #         raster_path_str=cost_raster_path,
-                            #         output_html_path_str=str(map_output_path),
-                            #         target_crs_epsg=settings.processing.output_crs_epsg,
-                            #         cmap_name='viridis_r', # Reversed colormap for cost (dark=high)
-                            #         opacity=0.8,
-                            #         layer_name="Normalized Cost (0=Low, 1=High/Impossible)"
-                            #     )
-                            #     logger.info(f"Single layer cost map saved to: {map_output_path}")
-                            # except Exception as display_e:
-                            #     logger.error(f"Error displaying cost raster on map: {display_e}", exc_info=True)
-                            
                             # Generate the multi-layer visualization externally
                             try:
                                 logger.info("Creating multi-layer visualization...")
