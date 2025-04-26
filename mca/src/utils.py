@@ -572,7 +572,6 @@ def display_overlay_folium_map(
     overlay_gdfs: dict[str, gpd.GeoDataFrame],
     input_rasters: dict[str, Path],
     output_html_path_str: str,
-    target_crs_epsg: int,
     tooltip_columns: Optional[list] = None,
     zoom_start: int = 12,
     tiles: str = 'CartoDB positron',
@@ -587,8 +586,6 @@ def display_overlay_folium_map(
         input_rasters (dict[str, Path]): Dictionary mapping input feature names
             (e.g., 'speed', 'traffic', 'cost', 'popularity') to their raster file Paths.
         output_html_path_str (str): Path to save the output HTML map.
-        target_crs_epsg (int): The expected EPSG code of the input rasters' CRS.
-                               Used for raster bounds transformation.
         tooltip_columns (Optional[list]): List of column names from overlay GDFs
                                           to show in tooltips.
         zoom_start (int): Initial zoom level for the map. Defaults to 12.
