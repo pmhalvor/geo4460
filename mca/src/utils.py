@@ -1426,13 +1426,15 @@ def display_multi_layer_on_folium_map(
                 # Add colormap legend if styled numerically
                 if style_col and style_cmap and style_vmin is not None:
                      try:
-                         colormap = linear.Colormap(
-                             [colors.rgb2hex(style_cmap(style_norm(i))) for i in np.linspace(style_vmin, style_vmax, num=10)],
-                             vmin=style_vmin, vmax=style_vmax,
+                         from branca.colormap import LinearColormap
+                         colors_list = [colors.rgb2hex(style_cmap(style_norm(i))) for i in np.linspace(style_vmin, style_vmax, num=10)]
+                         colormap = LinearColormap(
+                             colors=colors_list,
+                             vmin=style_vmin,
+                             vmax=style_vmax,
                              caption=f"{layer_name}: {style_col}"
                          )
-                         # Add legend outside the feature group so it's always visible? Or attach to group?
-                         # Adding to map directly for now. Could be complex to toggle legends.
+                         # Add legend outside the feature group so it's always visible
                          m.add_child(colormap)
                      except Exception as legend_e:
                          logger.warning(f"Could not create legend for layer '{layer_name}': {legend_e}")
