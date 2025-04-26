@@ -385,8 +385,8 @@ class Heatmap(FeatureBase):
         """Prepares and saves the training data to a temporary shapefile for WBT."""
         speed_field_shp = "avg_speed" # Use the renamed field
 
-        # NOTE Convert crs to EPSG:25833 for interpolation only!
-        train_gdf = train_gdf.to_crs(epsg=25833)
+        # Convert crs to EPSG:25833 for interpolation
+        train_gdf = self._prepare_for_wbt(train_gdf)
 
         # Ensure speed field is numeric
         if not train_gdf.empty and not pd.api.types.is_numeric_dtype(
@@ -422,45 +422,64 @@ class Heatmap(FeatureBase):
             return None, None, None # Indicate failure
 
     def _postprocess_wbt_output(self, input_path: str, src_epsg=25833, dst_epsg=4326):
-                """
-                WBT expected coordinates in EPSG:25833 and outputs in the same CRS.
-                We want to reproject our output to EPSG:4326 for easier visualization.
-                """
-                logger.info("Mapping back to EPSG:4326...")
-                input_path = Path(input_path)
-                output_path = input_path.with_name(f"{input_path.stem}_4326{input_path.suffix}")
+        """
+        Post-processes WBT output raster by:
+        1. Assigning the correct CRS (typically EPSG:25833) since WBT doesn't set it
+        2. Reprojecting to the visualization CRS (EPSG:4326) for mapping in Folium
+        
+        Args:
+            input_path: Path to the WBT output raster
+            src_epsg: Source EPSG code (WBT interpolation CRS), defaults to 25833
+            dst_epsg: Destination EPSG code (visualization CRS), defaults to 4326
+            
+        Returns:
+            Path to the reprojected raster
+        """
+        logger.info(f"Post-processing WBT output: Reprojecting from EPSG:{src_epsg} to EPSG:{dst_epsg}")
+        input_path = Path(input_path)
+        output_path = input_path.with_name(f"{input_path.stem}_4326{input_path.suffix}")
 
-                # Step 1: Assign missing CRS on interpolated raster (wbt rasters are usually missing it)
-                with rasterio.open(input_path, mode="r+") as src:
-                    src.crs = rasterio.crs.CRS.from_epsg(src_epsg)
-                
-                # Step 2: Reproject to EPSG:4326
-                with rasterio.open(input_path) as src:
-                    transform, width, height = calculate_default_transform(
-                        src.crs, dst_epsg, src.width, src.height, *src.bounds
+        # Step 1: Assign missing CRS on interpolated raster (WBT rasters are usually missing it)
+        with rasterio.open(input_path, mode="r+") as src:
+            if src.crs is None or src.crs.to_epsg() != src_epsg:
+                logger.info(f"Assigning CRS EPSG:{src_epsg} to WBT output raster")
+                src.crs = rasterio.crs.CRS.from_epsg(src_epsg)
+        
+        # Step 2: Reproject to visualization CRS (EPSG:4326)
+        with rasterio.open(input_path) as src:
+            transform, width, height = calculate_default_transform(
+                src.crs, dst_epsg, src.width, src.height, *src.bounds
+            )
+
+            with rasterio.open(output_path, 'w', driver="GTiff",
+                height=height, width=width,
+                count=1, dtype=src.dtypes[0],
+                crs=dst_epsg, transform=transform) as dst:
+                for i in range(1, src.count + 1):
+                    reproject(
+                        source=rasterio.band(src, i),
+                        destination=rasterio.band(dst, i),
+                        src_transform=src.transform,
+                        src_crs=src.crs,
+                        dst_transform=transform,
+                        dst_crs=dst_epsg,
+                        resampling=Resampling.bilinear
                     )
 
-                    with rasterio.open(output_path, 'w', driver="GTiff",
-                        height=height, width=width,
-                        count=1, dtype=src.dtypes[0],
-                        crs=dst_epsg, transform=transform) as dst:
-                        for i in range(1, src.count + 1):
-                            reproject(
-                                source=rasterio.band(src, i),
-                                destination=rasterio.band(dst, i),
-                                src_transform=src.transform,
-                                src_crs=src.crs,
-                                dst_transform=transform,
-                                dst_crs=dst_epsg,
-                                resampling=Resampling.bilinear
-                            )
+        # Step 3: Sanity check - ensure correct reprojection using gdalinfo
+        try:
+            subprocess.run(["gdalinfo", str(output_path)], check=True)
+            with rasterio.open(output_path) as dst:
+                if dst.crs.to_epsg() != dst_epsg:
+                    logger.warning(f"Reprojection issue: Output CRS is {dst.crs}, expected EPSG:{dst_epsg}")
+                else:
+                    logger.info(f"Successfully reprojected raster to EPSG:{dst_epsg}")
+        except Exception as e:
+            logger.error(f"Error verifying reprojected raster: {e}")
 
-                # Step 3: Sanity check - ensure correct reprojection using gdalinfo
-                subprocess.run(["gdalinfo", str(output_path)], check=True)
 
-                logger.info(f"Reprojected raster saved to: {output_path}")
-
-                return output_path
+        logger.info(f"Reprojected raster saved to: {output_path}")
+        return output_path
 
     def _verify_and_calculate_rmse(self, output_raster_path, train_gdf, test_gdf, speed_field_shp):
         """Verifies raster, assigns CRS, calculates RMSE, and saves results."""

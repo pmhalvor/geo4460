@@ -73,16 +73,33 @@ class FeatureBase(ABC):
         self.output_paths[output_key_metric] = path
         logger.info(f"Saved raster data: {path}")
 
-    def _reproject_if_needed(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    def _reproject_if_needed(self, gdf: gpd.GeoDataFrame, target_crs_epsg=None) -> gpd.GeoDataFrame:
         """Reprojects GeoDataFrame to target CRS if not already matching."""
         if gdf is None:
             return None
-        target_crs = f"EPSG:{self.settings.processing.output_crs_epsg}"
+            
+        # If no specific target CRS is provided, use the output_crs_epsg from settings
+        if target_crs_epsg is None:
+            target_crs_epsg = self.settings.processing.output_crs_epsg
+            
+        target_crs = f"EPSG:{target_crs_epsg}"
+        
         if gdf.crs is None:
             logger.warning("Input GDF has no CRS, assuming EPSG:4326 for reprojection.")
             gdf.crs = "EPSG:4326"  # Common default, adjust if needed
+            
         # Use CRS objects for reliable comparison
         if not gdf.crs.equals(target_crs):
             logger.info(f"Reprojecting GDF from {gdf.crs} to {target_crs}")
             return reproject_gdf(gdf, target_crs)
         return gdf
+        
+    def _prepare_for_wbt(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        """Prepares a GeoDataFrame for WhiteboxTools by converting to EPSG:25833.
+        WBT interpolation methods work most consistently with this CRS."""
+        return self._reproject_if_needed(gdf, target_crs_epsg=25833)
+        
+    def _prepare_for_visualization(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        """Prepares a GeoDataFrame for visualization by converting to EPSG:4326.
+        Folium maps work with WGS84 coordinates."""
+        return self._reproject_if_needed(gdf, target_crs_epsg=4326)
