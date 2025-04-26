@@ -1457,7 +1457,7 @@ def display_multi_layer_on_folium_map(
                     if not r_crs:
                         logger.warning(f"Skipping raster '{layer_name}': Missing CRS.")
                         continue
-                    if r_crs.to_epsg() != target_crs_epsg:
+                    if int(r_crs.to_epsg()) != int(target_crs_epsg.split(":")[-1]):
                         logger.error(f"Raster '{layer_name}' CRS ({r_crs}) differs from expected target EPSG:{target_crs_epsg}.")
                         logger.warning("Resulting visuals will be warped.")
 

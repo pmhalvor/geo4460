@@ -12,7 +12,7 @@ from src.tasks.features.heatmap import Heatmap
 from src.tasks.features.traffic import Traffic
 from src.tasks.features.roads import Roads
 from src.tasks.features.elevation import Elevation
-from src.tasks.features.cost_distance import CostDistance
+from tasks.features.cost import CostLayer
 
 
 logger = logging.getLogger(__name__)  # Define logger earlier
@@ -91,8 +91,8 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     dem_path, slope_path = elevation_results if elevation_results else (None, None)
 
     # --- Build Dependent Features ---
-    logger.info("Building dependent feature: Cost Distance...")
-    cost_distance = None # Initialize to None
+    logger.info("Building dependent feature: Cost Layer...")
+    cost_layer = None # Initialize to None
     cost_raster_path = None # Initialize path to None
     cost_raster_delayed = None # Initialize delayed task to None
 
@@ -106,8 +106,8 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
             roads_vector_path_obj = Path(roads_vector_input_path)
             speed_raster_path_obj = Path(speed_raster_path) if speed_raster_path else None
 
-            # Initialize CostDistance with VECTOR roads path
-            cost_distance = CostDistance(
+            # Initialize CostLayer with VECTOR roads path
+            cost_layer = CostLayer(
                 settings=settings,
                 wbt=wbt,
                 slope_raster_path=slope_raster_path_obj,
@@ -116,34 +116,67 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
             )
 
             # Get the delayed task for building the cost raster
-            cost_raster_delayed = cost_distance.build()
+            cost_raster_delayed = cost_layer.build()
 
             if cost_raster_delayed is not None:
-                logger.info("Cost Distance build task created. Will compute separately.")
-                # Compute the cost distance task
+                logger.info("Cost Layer build task created. Will compute separately.")
+                # Compute the cost layer task
                 # dask.compute returns a tuple, get the first element
-                cost_raster_path = dask.compute(cost_raster_delayed, scheduler="distributed")[0]
-                if cost_raster_path and Path(cost_raster_path).exists():
-                    logger.info(f"Cost Distance build complete. Output: {cost_raster_path}")
-                    # Convert string path back to Path object for consistency in results dict
-                    cost_raster_path = Path(cost_raster_path)
+                computed_results = dask.compute(cost_raster_delayed, scheduler="distributed")[0]
+                
+                # Handle the new dictionary return format
+                if computed_results and isinstance(computed_results, dict):
+                    # Extract the cost raster path
+                    cost_raster_path_str = computed_results.get("cost_raster_path")
+                    
+                    if cost_raster_path_str and Path(cost_raster_path_str).exists():
+                        cost_raster_path = Path(cost_raster_path_str)
+                        logger.info(f"Cost Layer build complete. Output: {cost_raster_path}")
+                        
+                        # Create multi-layer visualization after computation finishes
+                        try:
+                            logger.info("Creating multi-layer visualization...")
+                            slope_path = computed_results.get("slope_raster_path")
+                            speed_path = computed_results.get("aligned_speed_path", computed_results.get("speed_raster_path"))
+                            
+                            visualization_result = cost_layer.create_multi_layer_visualization(
+                                cost_raster_path=cost_raster_path,
+                                slope_raster_path=Path(slope_path) if slope_path else None,
+                                speed_raster_path=Path(speed_path) if speed_path else None
+                            )
+                            
+                            if visualization_result:
+                                logger.info(f"Multi-layer visualization created: {visualization_result}")
+                        except Exception as vis_e:
+                            logger.error(f"Error creating multi-layer visualization: {vis_e}", exc_info=True)
+                    else:
+                        logger.error("Cost Layer computation finished but output path is invalid or file not found.")
+                        cost_raster_path = None # Reset path if computation failed internally
                 else:
-                    logger.error("Cost Distance computation finished but output path is invalid or file not found.")
-                    cost_raster_path = None # Reset path if computation failed internally
-            else:
-                logger.error("CostDistance.build() failed to return a delayed task.")
+                    # Handle old return format (string path) for backwards compatibility
+                    if computed_results and isinstance(computed_results, str):
+                        cost_raster_path = Path(computed_results)
+                        if cost_raster_path.exists():
+                            logger.info(f"Cost Layer build complete. Output: {cost_raster_path}")
+                        else:
+                            logger.error("Cost Layer output path is invalid or file not found.")
+                            cost_raster_path = None
+                    else:
+                        logger.error("Cost Layer computation returned unexpected result format.")
+                        cost_raster_path = None
 
         except FileNotFoundError as e:
-             logger.error(f"Initialization error for CostDistance: Input file not found - {e}", exc_info=True)
+             logger.error(f"Initialization error for CostLayer: Input file not found - {e}", exc_info=True)
         except Exception as e:
-            logger.error(f"Failed to initialize or build Cost Distance: {e}", exc_info=True)
-            cost_distance = None # Ensure object is None if init failed
+            logger.error(f"Failed to initialize or build Cost Layer: {e}", exc_info=True)
+            cost_layer = None # Ensure object is None if init failed
             cost_raster_path = None
     else:
         missing = []
         if not slope_path: missing.append("slope_path")
-        if not roads_vector_input_path: missing.append("roads_vector_path (check key in road_vector_paths dict)")
-        logger.warning(f"Skipping Cost Distance build because required inputs are missing: {', '.join(missing)}")
+        if not roads_vector_input_path: 
+            missing.append("roads_vector_path (check key in road_vector_paths dict)")
+        logger.warning(f"Skipping Cost Layer build because required inputs are missing: {', '.join(missing)}")
 
 
     # --- Consolidate Results ---
@@ -155,7 +188,7 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
         "traffic": traffic,
         "roads": roads,
         "elevation": elevation,
-        "cost_distance": cost_distance, # Might be None if build failed/skipped
+        "cost_distance": cost_layer, # Might be None if build failed/skipped
         # Direct outputs from computation
         "segment_rasters": segment_raster_paths, # List of paths
         "speed_raster": speed_raster_path,       # Path or None

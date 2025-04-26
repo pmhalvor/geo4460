@@ -189,15 +189,16 @@ class OutputFilesConfig(BaseModel):
     elevation_dem_raster: str = "elevation_dem.tif"
     slope_raster: str = "slope.tif"
     cost_function_raster: str = "cost_function.tif"
-    normalized_cost_distance: str = "normalized_cost_distance.tif"
+    normalized_cost_layer: str = "normalized_cost.tif"  # Normalized cost distance
     rasterized_roads_mask: str = "rasterized_roads_mask.tif"  # Mask for roads
     aligned_speed_raster: str = "aligned_speed.tif"  # Aligned speed raster for overlay
 
-    # heatmap visualizations
+    # visualizations
     heatmap_visualization_html: str = "heatmap_visualization.html"  
     activity_segments_viz: str = "activity_segments_visualization.html"  
     heatmap_train_points_viz: str = "heatmap_train_points_visualization.html"
     heatmap_test_points_viz: str = "heatmap_test_points_visualization.html"
+    cost_layer_visualization_html: str = "cost_layer_visualization.html"
 
     # Feature Vectors (alternative to rasters)
     segment_popularity_vector_prefix: str = (
