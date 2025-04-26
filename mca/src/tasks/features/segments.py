@@ -12,6 +12,7 @@ import rasterio
 from rasterio.transform import from_origin
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
+from pathlib import Path
 
 from src.tasks.features.feature_base import FeatureBase
 from src.strava.explore import get_segment_details
@@ -23,12 +24,6 @@ from src.utils import (
     reproject_gdf, # Explicitly import reproject_gdf
 )
 
-
-# Basic setup for standalone testing
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 
@@ -118,7 +113,7 @@ class Segments(FeatureBase):
         return merged_gdf
 
     def _decode_and_reproject_polylines(self, gdf, polyline_field, target_crs, source_crs="EPSG:4326"):
-        """Decodes polylines for segments missing valid geometry and reprojects them."""
+        """Decodes polylines for segments missing valid geometry and reprojects them if needed."""
         logger.info("Checking for and processing missing geometries from polylines...")
         # Identify rows needing geometry from polyline
         needs_geom_mask = gdf['geometry'].isnull() | ~gdf.geometry.is_valid
@@ -158,17 +153,25 @@ class Segments(FeatureBase):
 
         # Reproject decoded geometries if any were created
         if decoded_geoms_data:
-            logger.info(f"Successfully decoded {len(decoded_geoms_data)} polylines. Reprojecting them to {target_crs}...")
+            logger.info(f"Successfully decoded {len(decoded_geoms_data)} polylines.")
             temp_decoded_gdf = gpd.GeoDataFrame(decoded_geoms_data, crs=source_crs)
             temp_decoded_gdf = temp_decoded_gdf.set_index('index') # Use original index
 
-            try:
-                temp_reprojected_gdf = reproject_gdf(temp_decoded_gdf, target_crs)
-                # Update the main GeoDataFrame using the index
-                gdf.loc[temp_reprojected_gdf.index, 'geometry'] = temp_reprojected_gdf['geometry']
-                logger.info("Updated main GDF with reprojected geometries from polylines.")
-            except Exception as reproj_e:
-                logger.error(f"Failed to reproject decoded polylines: {reproj_e}. Geometries for these segments remain unset.")
+            # Only reproject if the target CRS is different from source_crs
+            if source_crs != target_crs:
+                logger.info(f"Reprojecting decoded polylines from {source_crs} to {target_crs}...")
+                try:
+                    temp_reprojected_gdf = reproject_gdf(temp_decoded_gdf, target_crs)
+                    # Update the main GeoDataFrame using the index
+                    gdf.loc[temp_reprojected_gdf.index, 'geometry'] = temp_reprojected_gdf['geometry']
+                    logger.info("Updated main GDF with reprojected geometries from polylines.")
+                except Exception as reproj_e:
+                    logger.error(f"Failed to reproject decoded polylines: {reproj_e}. Geometries for these segments remain unset.")
+            else:
+                # No reprojection needed, use the decoded geometries directly
+                logger.info(f"No reprojection needed as source ({source_crs}) and target ({target_crs}) CRS are the same.")
+                gdf.loc[temp_decoded_gdf.index, 'geometry'] = temp_decoded_gdf['geometry']
+                logger.info("Updated main GDF with decoded polyline geometries (no reprojection needed).")
 
         return gdf
 
@@ -290,7 +293,6 @@ class Segments(FeatureBase):
 
         return gdf
 
-
     def load_data(self):
         """
         Loads segment data, combines sources, fetches details, processes geometry,
@@ -298,7 +300,7 @@ class Segments(FeatureBase):
         """
         logger.info("--- Starting Segment Loading and Preprocessing ---")
         segment_id_field = self.settings.input_data.segment_id_field
-        target_crs = f"EPSG:{self.settings.processing.output_crs_epsg}"
+        target_crs = f"EPSG:{self.settings.processing.map_crs_epsg}"
         polyline_field = self.settings.input_data.segment_polyline_field
         created_at_field = self.settings.input_data.segment_created_at_field
 
@@ -376,7 +378,6 @@ class Segments(FeatureBase):
              logger.warning("Final GDF is empty, skipping save of prepared_segments_gpkg.")
         logger.info("--- Segment Loading and Preprocessing Finished ---")
 
-
     def _fetch_and_cache_segment_details(self, initial_gdf):
         """Fetches and caches segment details from Strava API using CSV."""
         # This function remains largely the same, operating on the combined GDF
@@ -440,17 +441,26 @@ class Segments(FeatureBase):
              # Consider details cached only if essential fields like 'created_at' are present
              # Use the potentially subsetted segment_details_cache_df here
              valid_cache_df = segment_details_cache_df.dropna(subset=[created_at_field])
-             cached_ids = set(valid_cache_df[segment_id_field].unique())
+             cached_ids = set(valid_cache_df[segment_id_field].astype(int).astype(str).unique())  # astype conversion avoid extra ''
         else:
              logger.info("Cache is empty or missing essential columns for validation.")
 
-
+        # Debugging segment details fetch repeats
         logger.debug(f"Initial gdf has columns: {initial_gdf.columns.tolist()}")
         logger.debug(f"Initial id column type: {type(initial_gdf[segment_id_field].iloc[0])}")
         logger.debug(f"Details cache has columns: {segment_details_cache_df.columns.tolist()}")
         logger.debug(f"Details cache id column type: {type(segment_details_cache_df[segment_id_field].iloc[0])}")
         logger.debug(f"Filtering out {len(cached_ids)} cached segment IDs from initial gdf.")
-        ids_to_fetch = initial_gdf[~initial_gdf[segment_id_field].isin(cached_ids)][segment_id_field].unique().tolist()
+        logger.debug(f"Cached IDs type: {type(list(cached_ids)[0])}")
+        logger.debug(f"Initial gdf IDs: {initial_gdf[segment_id_field].unique()} (type: {type(initial_gdf[segment_id_field].iloc[0])})")
+
+        # ensure all segment_id_field values of same type
+        initial_gdf.loc[:, segment_id_field] = initial_gdf[segment_id_field].astype(int).astype(str)
+        initial_gdf = initial_gdf.copy().drop_duplicates(subset=[segment_id_field], keep='last')
+
+        ids_to_fetch = set(initial_gdf[segment_id_field].unique().tolist()) - set(cached_ids)
+        ids_to_fetch = list(ids_to_fetch)
+        logger.debug(f"IDs to fetch: {ids_to_fetch} (type: {type(ids_to_fetch[0])})")
 
         newly_fetched_ids = set()
         newly_fetched_details = []
@@ -643,220 +653,6 @@ class Segments(FeatureBase):
         if metric_cols_to_fill:
             self.gdf[metric_cols_to_fill] = self.gdf[metric_cols_to_fill].fillna(0)
 
-    @dask.delayed
-    def _build_popularity_raster(self, metric: str):
-        """Builds a popularity raster using the configured interpolation method."""
-        method = self.settings.processing.interpolation_method_polylines  # Check config
-        logger.info(
-            f"Building popularity raster for metric: {metric} using method: {method}"
-        )
-
-        if method == "kriging":
-            return self._build_popularity_raster_kriging(metric)
-        elif method == "idw":
-            return self._build_popularity_raster_idw(metric)
-        elif method == "nn":
-            return self._build_popularity_raster_nn(metric)
-        elif method == "tin":
-            return self._build_popularity_raster_tin(metric)
-        else:
-            logger.error(
-                f"Unsupported interpolation method '{method}' configured for segments (supported: idw, nn, tin, kriging)."
-            )
-            return None
-
-    def _build_popularity_raster_idw(self, metric: str):
-        """Builds a popularity raster using WhiteboxTools IDW."""
-        logger.info(f"Interpolating {metric} using WBT IDW...")
-        if self.gdf is None: raise ValueError("Segments GDF not loaded.")
-        if self.wbt is None: raise ValueError("WhiteboxTools not initialized.")
-        if metric not in self.gdf.columns or self.gdf[metric].isna().all():
-            logger.warning(f"Metric '{metric}' not found or all NaN. Skipping IDW.")
-            return None
-        if not pd.api.types.is_numeric_dtype(self.gdf[metric]):
-            logger.warning(f"Metric '{metric}' not numeric. Converting.")
-            self.gdf[metric] = pd.to_numeric(self.gdf[metric], errors="coerce").fillna(0)
-
-        points_gdf = polyline_to_points(self.gdf[["geometry", metric]].dropna(subset=[metric]))
-        if points_gdf.empty: logger.warning(f"No valid points for {metric}. Skipping IDW."); return None
-
-        sanitized_metric_field = "".join(filter(str.isalnum, metric))[:10] or "metric"
-        points_gdf_shp = points_gdf.rename(columns={metric: sanitized_metric_field})
-        input_shp_path = self.settings.paths.output_dir / f"temp_segment_points_{metric}.shp"
-        output_raster_path = self._get_output_path("segment_popularity_raster_prefix")
-        output_raster_path = output_raster_path.parent / f"{output_raster_path.stem}_{metric}.tif"
-        save_vector_data(points_gdf_shp, input_shp_path, driver="ESRI Shapefile")
-        try:
-            self.wbt.idw_interpolation(i=str(input_shp_path), field=sanitized_metric_field, output=str(output_raster_path),
-                                       min_points=self.settings.processing.segment_popularity_idw_min_points,
-                                       weight=self.settings.processing.segment_popularity_idw_power,
-                                       radius=self.settings.processing.segment_popularity_idw_radius,
-                                       cell_size=self.settings.processing.output_cell_size)
-            logger.info(f"Generated IDW popularity raster: {output_raster_path}")
-            self._save_raster(None, None, "segment_popularity_raster_prefix", metric_name=metric)
-            self.output_paths[f"segment_popularity_raster_prefix_{metric}"] = output_raster_path
-            return str(output_raster_path)
-        except Exception as e: logger.error(f"Error during WBT IDW for {metric}: {e}", exc_info=True); return None
-        finally:
-            for suffix in [".shp", ".shx", ".dbf", ".prj", ".cpg"]:
-                temp_file = input_shp_path.with_suffix(suffix)
-                if temp_file.exists():
-                    try: temp_file.unlink()
-                    except OSError as unlink_e: logger.warning(f"Could not delete temp file {temp_file}: {unlink_e}")
-
-    def _build_popularity_raster_nn(self, metric: str):
-        """Builds a popularity raster using WhiteboxTools Nearest Neighbour Gridding."""
-        logger.info(f"Interpolating {metric} using WBT Nearest Neighbour...")
-        if self.gdf is None: raise ValueError("Segments GDF not loaded.")
-        if self.wbt is None: raise ValueError("WhiteboxTools not initialized.")
-        if metric not in self.gdf.columns or self.gdf[metric].isna().all():
-            logger.warning(f"Metric '{metric}' not found or all NaN. Skipping NN.")
-            return None
-        if not pd.api.types.is_numeric_dtype(self.gdf[metric]):
-            logger.warning(f"Metric '{metric}' not numeric. Converting.")
-            self.gdf[metric] = pd.to_numeric(self.gdf[metric], errors="coerce").fillna(0)
-
-        points_gdf = polyline_to_points(self.gdf[["geometry", metric]].dropna(subset=[metric]))
-        if points_gdf.empty: logger.warning(f"No valid points for {metric}. Skipping NN."); return None
-
-        sanitized_metric_field = "".join(filter(str.isalnum, metric))[:10] or "metric"
-        points_gdf_shp = points_gdf.rename(columns={metric: sanitized_metric_field})
-        input_shp_path = self.settings.paths.output_dir / f"temp_segment_points_{metric}_nn.shp"
-        output_raster_path = self._get_output_path("segment_popularity_raster_prefix")
-        output_raster_path = output_raster_path.parent / f"{output_raster_path.stem}_{metric}_nn.tif"
-        save_vector_data(points_gdf_shp, input_shp_path, driver="ESRI Shapefile")
-        try:
-            self.wbt.nearest_neighbour_gridding(i=str(input_shp_path), field=sanitized_metric_field, output=str(output_raster_path),
-                                                cell_size=self.settings.processing.output_cell_size,
-                                                max_dist=self.settings.processing.segment_popularity_nn_max_dist)
-            logger.info(f"Generated NN popularity raster: {output_raster_path}")
-            self._save_raster(None, None, "segment_popularity_raster_prefix", metric_name=f"{metric}_nn")
-            self.output_paths[f"segment_popularity_raster_prefix_{metric}_nn"] = output_raster_path
-            return str(output_raster_path)
-        except Exception as e: logger.error(f"Error during WBT NN for {metric}: {e}", exc_info=True); return None
-        finally:
-            for suffix in [".shp", ".shx", ".dbf", ".prj", ".cpg"]:
-                temp_file = input_shp_path.with_suffix(suffix)
-                if temp_file.exists():
-                    try: temp_file.unlink()
-                    except OSError as unlink_e: logger.warning(f"Could not delete temp file {temp_file}: {unlink_e}")
-
-    def _build_popularity_raster_tin(self, metric: str):
-        """Builds a popularity raster using WhiteboxTools TIN Gridding."""
-        logger.info(f"Interpolating {metric} using WBT TIN Gridding...")
-        if self.gdf is None: raise ValueError("Segments GDF not loaded.")
-        if self.wbt is None: raise ValueError("WhiteboxTools not initialized.")
-        if metric not in self.gdf.columns or self.gdf[metric].isna().all():
-            logger.warning(f"Metric '{metric}' not found or all NaN. Skipping TIN.")
-            return None
-        if not pd.api.types.is_numeric_dtype(self.gdf[metric]):
-            logger.warning(f"Metric '{metric}' not numeric. Converting.")
-            self.gdf[metric] = pd.to_numeric(self.gdf[metric], errors="coerce").fillna(0)
-
-        points_gdf = polyline_to_points(self.gdf[["geometry", metric]].dropna(subset=[metric]))
-        if points_gdf.empty: logger.warning(f"No valid points for {metric}. Skipping TIN."); return None
-
-        sanitized_metric_field = "".join(filter(str.isalnum, metric))[:10] or "metric"
-        points_gdf_shp = points_gdf.rename(columns={metric: sanitized_metric_field})
-        input_shp_path = self.settings.paths.output_dir / f"temp_segment_points_{metric}_tin.shp"
-        output_raster_path = self._get_output_path("segment_popularity_raster_prefix")
-        output_raster_path = output_raster_path.parent / f"{output_raster_path.stem}_{metric}_tin.tif"
-        save_vector_data(points_gdf_shp, input_shp_path, driver="ESRI Shapefile")
-        try:
-            self.wbt.tin_gridding(i=str(input_shp_path), field=sanitized_metric_field, output=str(output_raster_path),
-                                  resolution=self.settings.processing.output_cell_size,
-                                  max_triangle_edge_length=self.settings.processing.segment_popularity_tin_max_triangle_edge_length)
-            logger.info(f"Generated TIN popularity raster: {output_raster_path}")
-            self._save_raster(None, None, "segment_popularity_raster_prefix", metric_name=f"{metric}_tin")
-            self.output_paths[f"segment_popularity_raster_prefix_{metric}_tin"] = output_raster_path
-            return str(output_raster_path)
-        except Exception as e: logger.error(f"Error during WBT TIN for {metric}: {e}", exc_info=True); return None
-        finally:
-            for suffix in [".shp", ".shx", ".dbf", ".prj", ".cpg"]:
-                temp_file = input_shp_path.with_suffix(suffix)
-                if temp_file.exists():
-                    try: 
-                        temp_file.unlink()
-                    except OSError as unlink_e: 
-                        logger.warning(f"Could not delete temp file {temp_file}: {unlink_e}")
-
-    def _build_popularity_raster_kriging(self, metric: str):
-        """NOTE: Current kriging implementation is broken. Use IDW instead."""
-        logger.warning(f"Attempting Kriging for {metric}. NOTE: geokrige library might be unstable.")
-        if self.gdf is None: 
-            raise ValueError("Segments GDF not loaded.")
-        if metric not in self.gdf.columns or self.gdf[metric].isna().all():
-            logger.warning(f"Metric '{metric}' not found or all NaN. Skipping Kriging.")
-            return None
-        if not pd.api.types.is_numeric_dtype(self.gdf[metric]):
-            logger.warning(f"Metric '{metric}' not numeric. Converting.")
-            self.gdf[metric] = pd.to_numeric(self.gdf[metric], errors="coerce").fillna(0)
-
-        points_gdf = polyline_to_points(self.gdf[["geometry", metric]].dropna(subset=[metric]))
-        if points_gdf.empty: 
-            logger.warning(f"No valid points for {metric}. Skipping Kriging."); return None
-
-        X_known = np.array(points_gdf.geometry.apply(lambda geom: [geom.x, geom.y]).tolist())
-        y_known = points_gdf[metric].to_numpy()
-        cell_size = self.settings.processing.output_cell_size
-        minx, miny, maxx, maxy = points_gdf.total_bounds
-        grid_x_coords = np.arange(minx, maxx + cell_size, cell_size)
-        grid_y_coords = np.arange(miny, maxy + cell_size, cell_size)
-        grid_x_mesh, grid_y_mesh = np.meshgrid(grid_x_coords, grid_y_coords)
-        X_predict = np.vstack([grid_x_mesh.ravel(), grid_y_mesh.ravel()]).T
-        logger.info(f"Creating Kriging grid: {len(grid_x_coords)} x {len(grid_y_coords)} cells")
-
-        interpolated_grid = None
-        try:
-            logger.info(f"Running Ordinary Kriging for '{metric}'...")
-            OK = OrdinaryKriging()
-            OK.load(X=X_known, y=y_known)
-            fit_successful = False
-            try:
-                n_bins = 15
-                logger.info(f"Calculating variogram ({n_bins} bins)...")
-                OK.variogram(bins=n_bins)
-                logger.info("Fitting variogram model...")
-                OK.fit(model=self.settings.processing.kriging_model)
-                if hasattr(OK, "learned_params") and OK.learned_params is not None:
-                    fit_successful = True
-                    logger.info(f"Variogram fit successful: {OK.learned_params}")
-                else: 
-                    logger.warning("Variogram fitting did not produce parameters.")
-            except ValueError as ve: 
-                logger.warning(f"Variogram calculation failed: {ve}.")
-            except Exception as fit_e: 
-                logger.warning(f"Could not fit variogram: {fit_e}.")
-
-            if fit_successful:
-                logger.info("Predicting values on grid...")
-                zvalues = OK.predict(X=X_predict)
-                logger.info(f"Kriging prediction complete for '{metric}'.")
-                grid_shape = (len(grid_y_coords), len(grid_x_coords))
-                if zvalues.size == grid_shape[0] * grid_shape[1]: 
-                    interpolated_grid = zvalues.reshape(grid_shape)
-                else: 
-                    raise ValueError(f"Kriging output size {zvalues.size} != grid shape {grid_shape}")
-            else: 
-                logger.error(f"Skipping prediction for {metric} due to variogram fit failure.")
-                return None
-        except Exception as e: 
-            logger.error(f"Error during geokrige for {metric}: {e}", exc_info=True)
-            return None
-
-        if interpolated_grid is not None:
-            try:
-                transform = from_origin(minx, maxy, cell_size, cell_size)
-                profile = {"driver": "GTiff", "height": interpolated_grid.shape[0], "width": interpolated_grid.shape[1],
-                           "count": 1, "dtype": str(interpolated_grid.dtype), "crs": self.gdf.crs,
-                           "transform": transform, "nodata": -9999}
-                self._save_raster(interpolated_grid, profile, "segment_popularity_raster_prefix", metric_name=metric)
-                output_path = self.output_paths.get(f"segment_popularity_raster_prefix_{metric}")
-                return str(output_path) if output_path else None
-            except Exception as e: 
-                logger.error(f"Error saving Kriging raster for {metric}: {e}", exc_info=True); return None
-        else: 
-            return None
 
     @dask.delayed
     def _build_popularity_vector(self, metric: str):
@@ -910,21 +706,9 @@ class Segments(FeatureBase):
         except Exception as e: 
             logger.error(f"Error saving vector for {metric}: {e}", exc_info=True);
             return None
-
-        # Add Folium Display Call
-        if self.settings.processing.display_segments:
-            try:
-                map_output_path = output_vector_path.with_suffix(".html")
-                display_vectors_on_folium_map(
-                    gdf=metric_gdf, output_html_path_str=str(map_output_path), style_column=norm_col,
-                    cmap_name='viridis', tooltip_columns=[self.settings.input_data.segment_id_field, metric, norm_col],
-                    popup_columns=[self.settings.input_data.segment_id_field, metric, norm_col, 'color'],
-                    line_weight=3 # Use line_weight for LineStrings
-                )
-                logger.info(f"Saved popularity vector Folium map: {map_output_path}")
-            except Exception as map_e:
-                logger.error(f"Error generating Folium map for {metric}: {map_e}", exc_info=True)
-            return str(output_vector_path)
+        
+        # Return the output path when successfully saved
+        return str(output_vector_path)
 
     def build(self):
         """Builds popularity vectors (or rasters) for configured metrics."""
@@ -944,7 +728,10 @@ class Segments(FeatureBase):
         # build_raster = False
 
         for metric in available_metrics:
-            if build_vector: tasks.append(self._build_popularity_vector(metric))
+            if build_vector: 
+                tasks.append(self._build_popularity_vector(metric))
+            else:
+                raise NotImplementedError("Raster building properly not implemented yet.")
             # elif build_raster: tasks.append(self._build_popularity_raster(metric))
 
         if not tasks:
@@ -954,14 +741,110 @@ class Segments(FeatureBase):
             return tasks
 
         logger.info(f"Returning {len(tasks)} delayed popularity output tasks for Dask computation.")
+            
         # Return the list of delayed objects directly, without computing here
         return tasks
+
+    def create_multi_layer_visualization(self, output_paths=[]):
+        """
+        Creates a single multi-layer visualization of all segment popularity metrics.
+        This combines all the individual vector layers into one folium map.
+        """
+        logger.info("Creating multi-layer visualization for all segment popularity metrics...")
+        
+        if not output_paths:
+            logger.warning("No output paths available for visualization.")
+            return None
+        
+        # Define output HTML path
+        output_html_path = self.settings.paths.output_dir / "segment_popularity_multi_layer_map.html"
+        
+        try:
+            # Define layers for multi-layer visualization
+            layers = []
+            
+            # Add each metric as a separate layer
+            metric_to_show = Path(output_paths[0]).stem.split('vector_')[-1]
+            for vector_path in output_paths:
+                # ensure vector_path is Path() object
+                if isinstance(vector_path, str):
+                    vector_path = Path(vector_path)
+
+                # Extract metric name from file path
+                metric_name = vector_path.stem.split('vector_')[-1]
+                
+                # Load the GeoDataFrame to get column names
+                try:
+                    gdf = gpd.read_file(vector_path)
+                    norm_col = f"{metric_name}_norm" if f"{metric_name}_norm" in gdf.columns else None
+                    
+                    if not norm_col:
+                        logger.warning(f"Normalized column not found for {metric_name}, using original metric")
+                        norm_col = metric_name
+                    
+                    # Define columns for tooltip and popup
+                    logger.info(f"GeoDataFrame at {vector_path} has columns: {gdf.columns.tolist()}")
+                    id_field = self.settings.input_data.segment_id_field
+                    tooltip_cols = [col for col in [id_field, metric_name, norm_col] if col in gdf.columns]
+                    popup_cols = [col for col in [id_field, metric_name, norm_col, 'color'] if col in gdf.columns]
+                    
+                    # Add layer configuration
+                    layers.append({
+                        'path': vector_path,
+                        'name': f'{metric_name}',
+                        'type': 'vector',
+                        'vector': {
+                            'style_column': norm_col,
+                            'cmap': 'viridis',
+                            'line_weight': 3,  # Thicker lines for better visibility
+                            'tooltip_cols': tooltip_cols,
+                            'popup_cols': popup_cols,
+                            'show': True if metric_name == metric_to_show else False  # Show only first layer by default
+                        }
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Error loading GeoDataFrame for {vector_path}: {e}")
+                    # Still add the layer with basic configuration
+                    layers.append({
+                        'path': vector_path,
+                        'name': f'{metric_name}',
+                        'type': 'vector',
+                        'vector': {
+                            'cmap': 'viridis',
+                            'line_weight': 3,
+                            'show': True if metric_name == metric_to_show else False
+                        }
+                    })
+            
+            # Use the display_multi_layer_on_folium_map utility
+            from src.utils import display_multi_layer_on_folium_map
+            display_multi_layer_on_folium_map(
+                layers=layers,
+                output_html_path_str=str(output_html_path),
+                map_zoom=12,  # Adjust zoom level as needed
+                map_tiles='CartoDB positron'  # Clean background map
+            )
+            
+            logger.info(f"Created multi-layer visualization with {len(layers)} layers: {output_html_path}")
+            return str(output_html_path)
+            
+        except Exception as e:
+            logger.error(f"Error creating multi-layer visualization: {e}", exc_info=True)
+            return None
 
 
 if __name__ == "__main__":
     from dask.distributed import Client, LocalCluster
     from whitebox import WhiteboxTools
     from src.config import settings
+
+
+    # Basic setup for standalone testing
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
 
     logger.info("--- Running segments.py Standalone Test ---")
     settings.paths.output_dir.mkdir(parents=True, exist_ok=True)
@@ -1004,6 +887,14 @@ if __name__ == "__main__":
                 output_paths = [r for r in computed_results if r is not None]
                 if output_paths:
                     logger.info(f"Generated Outputs: {output_paths}")
+                    # Create the multi-layer visualization after all tasks are completed
+                    if settings.processing.display_segments:
+                        logger.info("Creating multi-layer visualization of all segment popularity metrics...")
+                        visualization_path = segments_feature.create_multi_layer_visualization(output_paths=output_paths)
+                        if visualization_path:
+                            logger.info(f"Created multi-layer visualization: {visualization_path}")
+                        else:
+                            logger.warning("Failed to create multi-layer visualization")
                 else:
                     logger.warning("No valid outputs generated after computing build tasks.")
             else:
