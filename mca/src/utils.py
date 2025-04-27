@@ -8,7 +8,6 @@ import rasterio
 import rasterio.warp
 import shutil
 
-from branca.colormap import linear
 from pyproj import CRS
 from pathlib import Path
 from typing import (
@@ -677,8 +676,8 @@ def display_overlay_folium_map(
                         logger.warning(f"Skipping raster '{name}': Missing CRS.")
                         continue
                     # Verify CRS matches expected target_crs_epsg for consistency check
-                    if r_crs.to_epsg() != target_crs_epsg:
-                         logger.warning(f"Raster '{name}' CRS ({r_crs}) differs from expected target EPSG:{target_crs_epsg}.")
+                    # if r_crs.to_epsg() != target_crs_epsg:
+                    #      logger.warning(f"Raster '{name}' CRS ({r_crs}) differs from expected target EPSG:{target_crs_epsg}.")
                          # Proceeding, but transformation might be less accurate if CRS is wrong
 
                     # Transform bounds to WGS84

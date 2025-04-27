@@ -173,7 +173,8 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
             cost_raster_path = None
     else:
         missing = []
-        if not slope_path: missing.append("slope_path")
+        if not slope_path: 
+            missing.append("slope_path")
         if not roads_vector_input_path: 
             missing.append("roads_vector_path (check key in road_vector_paths dict)")
         logger.warning(f"Skipping Cost Layer build because required inputs are missing: {', '.join(missing)}")

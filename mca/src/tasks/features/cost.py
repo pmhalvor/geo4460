@@ -490,9 +490,11 @@ class CostLayer(FeatureBase):
             
             # 2. Add slope raster layer
             if slope_raster_path and slope_raster_path.is_file():
-                slope_raster_4326 = self._postprocess_raster_crs(str(slope_raster_path))
+                if "4326" not in str(slope_raster_path):
+                    # If slope raster is not already in 4326, reproject it
+                    slope_raster_path = self._postprocess_raster_crs(str(slope_raster_path))
                 layers.append({
-                    'path': slope_raster_4326,
+                    'path': slope_raster_path, # slope should already be in 4326
                     'name': 'Slope (degrees)',
                     'type': 'raster',
                     'raster': {
@@ -502,7 +504,7 @@ class CostLayer(FeatureBase):
                         'show': False  # Hidden by default
                     }
                 })
-                logger.info(f"Slope raster layer added to visualization: {slope_raster_4326}")
+                logger.info(f"Slope raster layer added to visualization: {slope_raster_path}")
             else:
                 logger.info(f"Slope raster not found at {str(slope_raster_path)}. Skipping slope layer.")
             

@@ -5,7 +5,6 @@ import rasterio
 import rasterio.sample
 import numpy as np
 import pandas as pd
-from shapely.geometry import Point
 from whitebox import WhiteboxTools
 
 # Local imports

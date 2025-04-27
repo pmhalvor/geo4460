@@ -178,7 +178,6 @@ class Roads(FeatureBase):
             logger.error(f"Error calculating length ratio: {e}", exc_info=True)
             return None
 
-
     def load_data(self):
         """Loads, filters, and processes N50 road data."""
         logger.info("--- Starting N50 Roads Processing ---")
@@ -227,7 +226,6 @@ class Roads(FeatureBase):
             logger.info(f"Ratio of lengths (simple_diff / all_diff): {self.length_ratio:.4f}")
         else:
             logger.warning("Could not calculate length ratio.")
-
 
         logger.info("--- N50 Roads Processing Finished ---")
 
