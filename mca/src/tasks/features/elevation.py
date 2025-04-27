@@ -99,6 +99,7 @@ class Elevation(FeatureBase):
                 return
 
             # --- Reprojection and Saving Intermediate ---
+            # self.gdf = self._reproject_if_needed(self.gdf) # Uses target_crs from settings
             self.gdf = self._reproject_if_needed(self.gdf) # Uses target_crs from settings
             logger.info(f"Contour GDF CRS after potential reprojection: {self.gdf.crs}")
             self._save_intermediate_gdf(self.gdf, "prepared_contours_gpkg")
@@ -156,6 +157,77 @@ class Elevation(FeatureBase):
                      logger.warning(f"Could not remove temporary CRS file {temp_output_path}: {unlink_e}")
 
         return success
+
+    def _postprocess_raster_for_visualization(self, raster_path, src_epsg=25833, dst_epsg=4326):
+        """
+        Post-processes a raster for visualization by:
+        1. Ensuring the correct source CRS is assigned (EPSG:25833)
+        2. Reprojecting to the visualization CRS (EPSG:4326)
+        
+        Args:
+            raster_path: Path to the raster file
+            src_epsg: Source EPSG code, defaults to 25833
+            dst_epsg: Destination EPSG code, defaults to 4326
+            
+        Returns:
+            Path to the reprojected raster
+        """
+        from rasterio.warp import calculate_default_transform, reproject, Resampling
+        
+        if not isinstance(raster_path, Path):
+            raster_path = Path(raster_path)
+            
+        if not raster_path.exists():
+            logger.error(f"Cannot postprocess: Raster file not found at {raster_path}")
+            return None
+            
+        # Define output path
+        output_path = raster_path.with_name(f"{raster_path.stem}_4326{raster_path.suffix}")
+        
+        logger.info(f"Post-processing raster: Reprojecting from EPSG:{src_epsg} to EPSG:{dst_epsg}")
+        
+        try:
+            # First ensure the source raster has the correct CRS
+            if not self._assign_crs_to_raster(raster_path, src_epsg):
+                logger.warning(f"Warning: Could not assign source CRS to {raster_path}. Reprojection may fail.")
+            
+            # Reproject to the visualization CRS
+            with rasterio.open(raster_path) as src:
+                transform, width, height = calculate_default_transform(
+                    src.crs, dst_epsg, src.width, src.height, *src.bounds
+                )
+                
+                profile = src.profile.copy()
+                profile.update({
+                    'crs': rasterio.CRS.from_epsg(dst_epsg),
+                    'transform': transform,
+                    'width': width,
+                    'height': height
+                })
+                
+                with rasterio.open(output_path, 'w', **profile) as dst:
+                    for i in range(1, src.count + 1):
+                        reproject(
+                            source=rasterio.band(src, i),
+                            destination=rasterio.band(dst, i),
+                            src_transform=src.transform,
+                            src_crs=src.crs,
+                            dst_transform=transform,
+                            dst_crs=rasterio.CRS.from_epsg(dst_epsg),
+                            resampling=Resampling.bilinear
+                        )
+            
+            logger.info(f"Successfully reprojected raster to EPSG:{dst_epsg}: {output_path}")
+            return output_path
+            
+        except Exception as e:
+            logger.error(f"Error reprojecting raster {raster_path}: {e}", exc_info=True)
+            if output_path.exists():
+                try:
+                    output_path.unlink()  # Clean up partial output
+                except OSError:
+                    pass
+            return None
 
     # --- RMSE Calculation Helper Functions (Adapted from heatmap.py) ---
 
@@ -322,203 +394,209 @@ class Elevation(FeatureBase):
         interpolation_method = self.settings.processing.interpolation_method_dem.lower()
         cell_size = self.settings.processing.output_cell_size
         slope_units = self.settings.processing.slope_units
-        target_epsg = self.settings.processing.output_crs_epsg
-        target_crs_str = f"EPSG:{target_epsg}"
-
+        
+        # Paths for processing (25833) and visualization (4326)
         dem_path_key = "elevation_dem_raster"
         slope_path_key = "slope_raster"
-        dem_path = self._get_output_path(dem_path_key)
-        slope_path = self._get_output_path(slope_path_key)
-        dem_path.parent.mkdir(parents=True, exist_ok=True) # Ensure output dir exists
+        dem_path_25833 = self._get_output_path(dem_path_key)
+        slope_path_25833 = self._get_output_path(slope_path_key)
+        dem_path_25833.parent.mkdir(parents=True, exist_ok=True)
 
-        # Sanitize elevation field name for shapefile compatibility (max 10 chars, alphanumeric)
-        sanitized_elev_field = "".join(filter(str.isalnum, self.elevation_field_name))[:10]
-        if not sanitized_elev_field:
-            sanitized_elev_field = "elev" # Default if name is unusable
-        logger.info(f"Using sanitized elevation field for WBT: '{sanitized_elev_field}'")
+        # --- Prepare Data ---
+        train_gdf, test_gdf, sanitized_elev_field = self._preprocess_and_split_points()
+        if train_gdf is None or test_gdf is None or sanitized_elev_field is None:
+            logger.error("Preprocessing and splitting points failed. Cannot proceed.")
+            return None, None
 
-        # Always use Shapefile for WBT interpolation input due to potential compatibility issues
-        temp_file_suffix = ".shp"
-        temp_driver = "ESRI Shapefile"
-        logger.info(f"Interpolation method '{interpolation_method}'. Using {temp_driver} for temporary WBT input.")
-
-        # Use a temporary directory context manager for automatic cleanup
+        # --- Create temporary directory for WBT input ---
         with tempfile.TemporaryDirectory(prefix="elevation_wbt_") as temp_dir_name:
             temp_dir = Path(temp_dir_name)
-            input_wbt_path = None # Path to the temporary file WBT will use (training data)
-            train_gdf, test_gdf = None, None # To store split data
-
+            input_wbt_path = temp_dir / "train_points.shp"
+            
             try:
-                # --- Prepare Data: Convert Contours to Points and Split --- TODO move preprocessing to own method
-                logger.info("Converting contours to points for train/test split...")
-                # Create a working copy of the GDF to avoid modifying the original
-                gdf_working = self.gdf.copy()
-
-                # Ensure the working GDF has the target CRS before saving/processing
-                if gdf_working.crs is None or gdf_working.crs.to_string() != target_crs_str:
-                    logger.warning(f"Reprojecting working GDF from {gdf_working.crs} to {target_crs_str} for processing.")
-                    gdf_working = gdf_working.to_crs(target_crs_str)
-                else:
-                    logger.info(f"Working GDF already has target CRS: {target_crs_str}")
-
-                # Rename the elevation field in the working copy
-                gdf_working = gdf_working.rename(
-                    columns={self.elevation_field_name: sanitized_elev_field}
-                )
-
-                # Convert all contours to points first
-                all_points_gdf = polyline_to_points(
-                    gdf_working[[sanitized_elev_field, "geometry"]]
-                )
-                if all_points_gdf.empty:
-                    logger.error("No points generated from contours. Cannot proceed.")
-                    return None, None
-                all_points_gdf.crs = target_crs_str # Ensure CRS is set
-                logger.info(f"Generated {len(all_points_gdf)} total points from contours.")
-
-                # Split points into training and testing sets
-                logger.info("Splitting points into training and testing sets (80/20)...")
-                # Use a fixed random state for reproducibility if desired
-                # TODO: Make train_size configurable via settings?
-                train_gdf, test_gdf = train_test_split(
-                    all_points_gdf,
-                    train_size=self.settings.processing.train_test_split_fraction,
-                    random_state=self.settings.processing.seed
-                )
-                if train_gdf.empty or test_gdf.empty:
-                    logger.error("Train or test set is empty after splitting. Cannot proceed.")
-                    return None, None
-                logger.info(f"Train set size: {len(train_gdf)}, Test set size: {len(test_gdf)}")
-
-                # --- Prepare Temporary Input Data for WBT (using TRAINING points) --- TODO include in preprocessing
-                logger.info(f"Preparing temporary input data (training points) in {temp_dir}...")
-                # Always use points for interpolation input now, even for TIN, for consistency in evaluation
-                input_wbt_path = temp_dir / f"train_points{temp_file_suffix}"
+                # Save training points to shapefile for WBT
                 save_vector_data(
-                    train_gdf[[sanitized_elev_field, "geometry"]], # Save only train points
+                    train_gdf[[sanitized_elev_field, "geometry"]],
                     input_wbt_path,
-                    driver=temp_driver
+                    driver="ESRI Shapefile"
                 )
                 logger.info(f"Saved temporary training points file: {input_wbt_path} ({len(train_gdf)} points)")
-
-
-                # --- Run WBT Interpolation (using TRAINING points) --- TODO move interpolation methods to own method
-                logger.info(
-                    f"Running WBT '{interpolation_method}' interpolation using training points..."
-                )
+                
+                # --- Run WBT Interpolation ---
+                logger.info(f"Running WBT {interpolation_method} interpolation...")
                 try:
                     if interpolation_method in ("natural_neighbor", "nn"):
-                        # NN uses points
                         self.wbt.natural_neighbour_interpolation(
-                            i=str(input_wbt_path), 
+                            i=str(input_wbt_path),
                             field=sanitized_elev_field,
-                            output=str(dem_path),
-                            # cell_size=cell_size,
+                            output=str(dem_path_25833),
+                            cell_size=cell_size,
                         )
                     elif interpolation_method == "tin":
-                        max_triangle_edge_length = self.settings.processing.dem_tin_max_triangle_edge_length
-                        tin_args = {
-                            "i": str(input_wbt_path), 
-                            "field": sanitized_elev_field,
-                            "output": str(dem_path),
-                            "resolution": cell_size,
-                        }
-                        if max_triangle_edge_length is not None:
-                            tin_args["max_triangle_edge_length"] = max_triangle_edge_length
-                            logger.info(f"Using max_triangle_edge_length: {max_triangle_edge_length}")
-                        self.wbt.tin_gridding(**tin_args)
-                    elif interpolation_method == "idw":
-                        # IDW uses points
-                        idw_weight = self.settings.processing.dem_idw_weight
-                        idw_radius = self.settings.processing.dem_idw_radius
-                        idw_min_points = self.settings.processing.dem_idw_min_points
-                        
-                        logger.info(f"IDW Params: weight={idw_weight}, radius={idw_radius}, min_points={idw_min_points}")
-                        
-                        self.wbt.idw_interpolation(
-                            i=str(input_wbt_path), 
+                        self.wbt.tin_gridding(
+                            i=str(input_wbt_path),
                             field=sanitized_elev_field,
-                            output=str(dem_path),
+                            output=str(dem_path_25833),
+                            resolution=cell_size,
+                            max_triangle_edge_length=self.settings.processing.dem_tin_max_triangle_edge_length,
+                        )
+                    elif interpolation_method == "idw":
+                        self.wbt.idw_interpolation(
+                            i=str(input_wbt_path),
+                            field=sanitized_elev_field,
+                            output=str(dem_path_25833),
                             cell_size=cell_size,
-                            weight=idw_weight,
-                            radius=idw_radius,
-                            min_points=idw_min_points,
+                            weight=self.settings.processing.dem_idw_weight,
+                            radius=self.settings.processing.dem_idw_radius,
+                            min_points=self.settings.processing.dem_idw_min_points,
                         )
                     else:
-                        logger.error(f"Unsupported interpolation method configured: {interpolation_method}")
+                        logger.error(f"Unsupported interpolation method: {interpolation_method}")
                         return None, None
-
-                except Exception as wbt_interp_e:
-                    logger.error(f"WBT interpolation ('{interpolation_method}') failed: {wbt_interp_e}", exc_info=True)
-                    return None, None # Exit if interpolation fails
-
-                if not dem_path.exists():
-                     logger.error(f"WBT interpolation ran but output DEM file not found: {dem_path}")
-                     return None, None
-
-                logger.info(f"DEM raster generated successfully: {dem_path}")
-
-                # --- Assign CRS to DEM --- TODO add to interpolation method
-                if not self._assign_crs_to_raster(dem_path, target_epsg):
-                    logger.error(f"Failed to assign CRS to generated DEM: {dem_path}. Aborting slope calculation.")
-                    return None, None 
-
-                # --- Evaluate DEM with RMSE (using TESTING points) ---
+                        
+                except Exception as e:
+                    logger.error(f"Error during WBT interpolation: {e}", exc_info=True)
+                    return None, None
+                    
+                if not dem_path_25833.exists():
+                    logger.error(f"WBT interpolation completed but output file not found: {dem_path_25833}")
+                    return None, None
+                    
+                # Assign CRS to DEM (WBT output lacks CRS information)
+                if not self._assign_crs_to_raster(dem_path_25833, 25833):
+                    logger.error(f"Failed to assign CRS to DEM: {dem_path_25833}")
+                    return None, None
+                
+                # --- Calculate Slope ---
+                logger.info(f"Calculating slope from DEM (Units: {slope_units})...")
+                try:
+                    self.wbt.slope(
+                        dem=str(dem_path_25833),
+                        output=str(slope_path_25833),
+                        units=slope_units
+                    )
+                except Exception as e:
+                    logger.error(f"Error during slope calculation: {e}", exc_info=True)
+                    return str(dem_path_25833), None
+                    
+                if not slope_path_25833.exists():
+                    logger.error(f"Slope calculation completed but output file not found: {slope_path_25833}")
+                    return str(dem_path_25833), None
+                    
+                # Assign CRS to Slope (WBT output lacks CRS information)
+                if not self._assign_crs_to_raster(slope_path_25833, 25833):
+                    logger.error(f"Failed to assign CRS to Slope: {slope_path_25833}")
+                    return str(dem_path_25833), None
+                
+                # --- Evaluate DEM with RMSE ---
+                # Both train and test are also in 25833 after preprocessing
                 self._evaluate_dem_with_rmse(
-                    dem_path=dem_path,
+                    dem_path=dem_path_25833,
                     train_gdf=train_gdf,
                     test_gdf=test_gdf,
                     sanitized_elev_field=sanitized_elev_field,
                     interpolation_method=interpolation_method,
                     cell_size=cell_size,
-                    num_train_points=len(train_gdf) if train_gdf is not None else 0
+                    num_train_points=len(train_gdf)
                 )
-
-                # --- Calculate Slope from DEM --- TODO move slope calculation to own method
-                logger.info(f"Calculating slope from DEM (Units: {slope_units})...")
-                try:
-                    self.wbt.slope(
-                        dem=str(dem_path),
-                        output=str(slope_path),
-                        units=slope_units
-                    )
-                except Exception as wbt_slope_e:
-                    logger.error(f"WBT slope calculation failed: {wbt_slope_e}", exc_info=True)
-                    return str(dem_path), None # Return DEM path, but None for slope
-
-                if not slope_path.exists():
-                    logger.error(f"WBT slope ran but output slope file not found: {slope_path}")
-                    return str(dem_path), None # Return DEM path, but None for slope
-
-                logger.info(f"Slope raster generated successfully: {slope_path}")
-
-                # --- Assign CRS to Slope Raster --- TODO add to slope calculation
-                if not self._assign_crs_to_raster(slope_path, target_epsg):
-                    logger.error(f"Failed to assign CRS to generated slope raster: {slope_path}.")
-                    # Return DEM path, but None for slope as slope file might be unusable
-                    return str(dem_path), None
-
-                # --- Success ---
-                logger.info("DEM and Slope generation process completed successfully.")
-                # Store final paths in the instance variable
-                self.output_paths[dem_path_key] = dem_path
-                self.output_paths[slope_path_key] = slope_path
-                return str(dem_path), str(slope_path)
-
+                
+                # --- Reproject for Visualization (EPSG:4326) ---
+                logger.info("Reprojecting rasters to EPSG:4326 for visualization...")
+                dem_path_4326 = self._postprocess_raster_for_visualization(dem_path_25833)
+                slope_path_4326 = self._postprocess_raster_for_visualization(slope_path_25833)
+                
+                if dem_path_4326 is None:
+                    logger.warning("Failed to reproject DEM to EPSG:4326. Using EPSG:25833 version.")
+                    dem_path_final = dem_path_25833
+                else:
+                    logger.info(f"DEM reprojected to EPSG:4326: {dem_path_4326}")
+                    dem_path_final = dem_path_4326
+                
+                if slope_path_4326 is None:
+                    logger.warning("Failed to reproject Slope to EPSG:4326. Using EPSG:25833 version.")
+                    slope_path_final = slope_path_25833
+                else:
+                    logger.info(f"Slope reprojected to EPSG:4326: {slope_path_4326}")
+                    slope_path_final = slope_path_4326
+                
+                # Store paths in object for reference
+                self.output_paths[dem_path_key] = dem_path_final
+                self.output_paths[slope_path_key] = slope_path_final
+                
+                return str(dem_path_final), str(slope_path_final)
+                
             except Exception as e:
                 logger.error(f"Unexpected error during DEM/Slope generation: {e}", exc_info=True)
                 return None, None
-            finally:
-                 logger.info(f"Temporary directory {temp_dir} will be cleaned up.")
-        # End of temporary directory context
+
+    def _preprocess_and_split_points(self):
+        """
+        Converts contours to points, splits into train/test sets,
+        and prepares them in the correct CRS for WBT processing (EPSG:25833).
+        
+        Returns:
+            tuple: (train_gdf, test_gdf, sanitized_elev_field) or (None, None, None) on failure
+        """
+        logger.info("Preprocessing contours for interpolation...")
+        
+        # Sanitize elevation field name for shapefile compatibility (max 10 chars, alphanumeric)
+        sanitized_elev_field = "".join(filter(str.isalnum, self.elevation_field_name))[:10]
+        if not sanitized_elev_field:
+            sanitized_elev_field = "elev"  # Default if name is unusable
+        logger.info(f"Using sanitized elevation field for WBT: '{sanitized_elev_field}'")
+        
+        try:
+            # Create a working copy of the GDF
+            gdf_working = self.gdf.copy()
+            
+            # Rename the elevation field in the working copy
+            gdf_working = gdf_working.rename(
+                columns={self.elevation_field_name: sanitized_elev_field}
+            )
+            
+            # Convert all contours to points first
+            all_points_gdf = polyline_to_points(
+                gdf_working[[sanitized_elev_field, "geometry"]]
+            )
+            if all_points_gdf.empty:
+                logger.error("No points generated from contours. Cannot proceed.")
+                return None, None, None
+                
+            logger.info(f"Generated {len(all_points_gdf)} total points from contours.")
+            
+            # Split points into training and testing sets
+            logger.info("Splitting points into training and testing sets...")
+            train_gdf, test_gdf = train_test_split(
+                all_points_gdf,
+                train_size=self.settings.processing.train_test_split_fraction,
+                random_state=self.settings.processing.seed
+            )
+            
+            if train_gdf.empty or test_gdf.empty:
+                logger.error("Train or test set is empty after splitting. Cannot proceed.")
+                return None, None, None
+                
+            logger.info(f"Train set size: {len(train_gdf)}, Test set size: {len(test_gdf)}")
+            
+            # Convert to EPSG:25833 for WBT processing
+            train_gdf = self._prepare_for_wbt(train_gdf)
+            test_gdf = self._prepare_for_wbt(test_gdf)
+            
+            logger.info(f"Prepared points for WBT: CRS={train_gdf.crs}")
+            
+            return train_gdf, test_gdf, sanitized_elev_field
+            
+        except Exception as e:
+            logger.error(f"Error preprocessing contours: {e}", exc_info=True)
+            return None, None, None
 
     def build(self):
         """
         Builds DEM and Slope rasters from the loaded N50 contour data.
 
         Returns:
-            List[str]: A list containing the paths of successfully generated rasters.
-                       Returns an empty list if data loading or raster generation fails.
+            A dask.delayed task that resolves to a tuple (dem_path_str, slope_path_str)
+            or (None, None) if generation fails.
         """
         # Ensure data is loaded first
         if self.gdf is None:
@@ -527,26 +605,21 @@ class Elevation(FeatureBase):
 
         if self.gdf is None: # Still None if loading failed
             logger.error("Cannot build Elevation features: Data loading failed.")
-            return [] # Return empty list consistent with other features
+            return dask.delayed(lambda: (None, None))() # Return delayed task with None values
 
         # Get the delayed task for DEM and Slope generation
         logger.info("Creating delayed task for DEM and Slope generation...")
-        task = self._build_dem_and_slope() # This returns a dask.delayed object or (None, None)
+        task = self._build_dem_and_slope() # This returns a dask.delayed object for (dem_path, slope_path)
 
-        if task is None:
-            logger.error("Failed to create delayed task for DEM/Slope generation.")
-            return None # Indicate task creation failure
-
+        # Return the task directly - this maintains backward compatibility with build_features.py
         logger.info("Returning delayed task for DEM/Slope computation.")
-        # Return the delayed object directly
         return task
-
 
 if __name__ == "__main__":
     from dask.distributed import Client, LocalCluster
     from src.config import settings 
     from whitebox import WhiteboxTools
-    from src.utils import display_dem_slope_on_folium_map
+    from src.utils import display_raster_on_folium_map, display_multi_layer_on_folium_map
 
     logger.info("--- Running elevation.py Standalone Test ---")
 
@@ -557,7 +630,8 @@ if __name__ == "__main__":
         logger.info(f"Using Output Directory: {settings.paths.output_dir}")
         interpolation_method_config = settings.processing.interpolation_method_dem
         logger.info(f"Configured DEM Interpolation Method: {interpolation_method_config}")
-        logger.info(f"Target Output CRS: EPSG:{settings.processing.output_crs_epsg}")
+        logger.info(f"Interpolation CRS: EPSG:{settings.processing.interpolation_crs_epsg}")
+        logger.info(f"Map Visualization CRS: EPSG:{settings.processing.map_crs_epsg}")
 
         # --- Initialize WBT ---
         wbt = None
@@ -565,11 +639,10 @@ if __name__ == "__main__":
             wbt = WhiteboxTools()
             # Optional: Set verbosity, working dir etc. if needed for testing
             wbt.set_verbose_mode(settings.processing.wbt_verbose)
-            # wbt.set_working_dir(str(settings.paths.project_root)) # Example
             logger.info("WhiteboxTools initialized.")
         except Exception as wbt_e:
-             logger.error(f"Failed to initialize WhiteboxTools: {wbt_e}", exc_info=True)
-             wbt = None # Ensure wbt is None if init fails
+            logger.error(f"Failed to initialize WhiteboxTools: {wbt_e}", exc_info=True)
+            wbt = None # Ensure wbt is None if init fails
 
         # --- Setup Dask Client (Optional but recommended) ---
         cluster = None
@@ -587,7 +660,7 @@ if __name__ == "__main__":
         elevation_feature = None
         try:
             if wbt is None:
-                 raise RuntimeError("Cannot run test: WhiteboxTools failed to initialize.")
+                raise RuntimeError("Cannot run test: WhiteboxTools failed to initialize.")
 
             logger.info("--- Testing Elevation Feature ---")
             # Pass the initialized wbt instance
@@ -625,34 +698,100 @@ if __name__ == "__main__":
                         logger.warning("Slope generation appears to have failed or file not found after compute.")
 
                     # --- Display Generated Rasters ---
-                    if raster_paths:
+                    if len(raster_paths) > 0:
                         logger.info("--- Displaying Generated Rasters ---")
+                        
+                        # 1. First create individual maps for each raster (backward compatibility)
                         for path_str in raster_paths:
                             path_obj = Path(path_str)
-                            logger.info(f"Processing raster for display: {path_obj.name}")
+                            logger.info(f"Processing single raster for display: {path_obj.name}")
                             if not path_obj.exists():
                                 logger.warning(f"  - Raster file not found: {path_obj}. Skipping display.")
                                 continue
+                                
+                            try:
+                                # Define output path for the individual map
+                                single_map_output_path = settings.paths.output_dir / f"{path_obj.stem}_single_map.html"
+                                
+                                # Determine colormap based on file type
+                                cmap = 'terrain' if 'dem' in path_obj.stem.lower() else 'coolwarm' 
+                                logger.info(f"  - Using colormap: {cmap}")
+                                
+                                # Display using the single-layer function
+                                display_raster_on_folium_map(
+                                    raster_path_str=str(path_obj),
+                                    output_html_path_str=str(single_map_output_path),
+                                    target_crs_epsg=settings.processing.map_crs_epsg,  # Use map_crs_epsg (4326) for visualizing
+                                    cmap_name=cmap,
+                                    layer_name=path_obj.stem
+                                )
+                                logger.info(f"  - Saved single-layer visualization: {single_map_output_path}")
+                            except Exception as display_e:
+                                logger.error(f"  - Error displaying raster {path_str} on individual map: {display_e}", exc_info=True)
+                        
+                        # 2. Create a multi-layer map with all successfully generated rasters
                         try:
-                            # Define output path for the map
-                            map_output_path = settings.paths.output_dir / f"{path_obj.stem}_map.html"
-                            # Determine colormap based on file type
-                            cmap = 'terrain' if 'dem' in path_obj.stem.lower() else 'viridis' 
-                            logger.info(f"  - Using colormap: {cmap}")
-                            display_dem_slope_on_folium_map(
-                                raster_path_str=str(path_obj), 
-                                output_html_path_str=str(map_output_path),
-                                target_crs_epsg=settings.processing.output_crs_epsg,
-                                cmap_name=cmap,
-                                layer_name=path_obj.stem
-                            )
-                            logger.info(f"  - Saved visualization map: {map_output_path}")
+                            # Only proceed if we have at least one valid raster
+                            if len(raster_paths) > 0:
+                                logger.info("Creating multi-layer map with all generated rasters...")
+                                
+                                # Define output path for the multi-layer map
+                                multi_map_output_path = settings.paths.output_dir / f"elevation_multi_layer_map.html"
+                                
+                                # Prepare layer configurations
+                                layers = []
+                                
+                                # Add DEM layer if available
+                                if dem_result and Path(dem_result).exists():
+                                    dem_layer = {
+                                        'path': dem_result,
+                                        'name': 'Digital Elevation Model',
+                                        'type': 'raster',
+                                        'raster': {
+                                            'cmap': 'terrain',
+                                            'opacity': 0.7,
+                                            'show': True,  # Show by default
+                                            'target_crs_epsg': settings.processing.map_crs_epsg
+                                        }
+                                    }
+                                    layers.append(dem_layer)
+                                
+                                # Add Slope layer if available
+                                if slope_result and Path(slope_result).exists():
+                                    slope_layer = {
+                                        'path': slope_result,
+                                        'name': 'Slope',
+                                        'type': 'raster',
+                                        'raster': {
+                                            'cmap': 'coolwarm',
+                                            'opacity': 0.7,
+                                            'show': False,  # Hide by default (can be toggled on)
+                                            'target_crs_epsg': settings.processing.map_crs_epsg
+                                        }
+                                    }
+                                    layers.append(slope_layer)
+                                
+                                # Create multi-layer map
+                                display_multi_layer_on_folium_map(
+                                    layers=layers,
+                                    output_html_path_str=str(multi_map_output_path),
+                                    map_zoom=11,
+                                    map_tiles='CartoDB positron'
+                                )
+                                
+                                logger.info(f"Multi-layer elevation map saved to: {multi_map_output_path}")
+                            else:
+                                logger.warning("No valid rasters available for multi-layer display.")
+                                
                         except ImportError as import_err:
-                             logger.warning(f"  - Could not display raster {path_str}: Missing dependency ({import_err}). Install folium and branca.")
-                        except Exception as display_e:
-                            logger.error(f"  - Error displaying raster {path_str} on map: {display_e}", exc_info=True)
+                            logger.warning(f"Could not create multi-layer map: Missing dependency ({import_err}). Install folium and branca.")
+                        except Exception as multi_map_err:
+                            logger.error(f"Error creating multi-layer map: {multi_map_err}", exc_info=True)
+                    
+                    else:
+                        logger.warning("No raster paths generated by build process. Skipping map display.")
                 else:
-                     logger.warning("No raster paths generated by build process. Skipping map display.")
+                    logger.error("Build() returned None instead of a delayed task. Skipping computation.")
             else:
                 logger.error("Skipping Elevation build test as data loading failed.")
 

@@ -10,6 +10,7 @@ from src.config import settings
 from src.utils import setup_output_dir
 from src.tasks.build_features import build_features_task
 from src.tasks.combine_features import combine_features_task # Import the combine task
+from src.tasks.evaluate import EvaluateTask # Import the evaluate task
 
 
 logger = logging.getLogger(__name__)
@@ -88,10 +89,22 @@ def main():
 
         # --- Task 3: Evaluate Results ---
         logger.info("--- Starting Task 3: Evaluate Results ---")
-        # This task analyzes the combined features and generates reports/outputs
-        # evaluate_task(combined_results, settings=settings)
-        # logger.info("--- Task 3: Evaluate Results Completed ---")
-        logger.warning("Evaluate Results task not yet implemented.")  # Placeholder
+        # This task generates visualizations, ranks segments, and saves metadata
+        eval_task = EvaluateTask(
+            settings=settings,
+            feature_outputs=feature_results,
+            combined_outputs=combined_results
+        )
+        evaluation_results = eval_task.run()
+        logger.info("--- Task 3: Evaluate Results Completed ---")
+        # Log the paths of the generated evaluation files
+        logger.info("Evaluation Task Results (Output Paths):")
+        for key, path in evaluation_results.items():
+            if path:
+                logger.info(f"  - {key}: {path}")
+            else:
+                logger.warning(f"  - {key}: Not generated or failed.")
+
 
         # --- Error Handling ---
         # Specific errors related to file operations or data processing

@@ -8,10 +8,12 @@ import pandas as pd
 import polyline
 import rasterio
 import rasterio.crs
+import subprocess
 import tempfile
 
 from datetime import datetime
 from pathlib import Path
+from rasterio.warp import calculate_default_transform, reproject, Resampling
 from shapely.geometry import LineString, Point
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
@@ -21,6 +23,7 @@ from src.tasks.features.feature_base import FeatureBase
 from src.utils import (
     save_vector_data,
     polyline_to_points,
+    display_multi_layer_on_folium_map,
 )
 
 
@@ -58,8 +61,6 @@ class Heatmap(FeatureBase):
         logger.info(f"Found {len(json_files)} activity JSON files.")
 
         all_split_segments = []
-        target_crs = self.settings.processing.output_crs_epsg
-        logger.info(f"Target CRS read from settings: {target_crs}")
 
         for file_path in json_files:
             try:
@@ -70,6 +71,7 @@ class Heatmap(FeatureBase):
                 activity_id = data.get("id")
                 encoded_polyline = data.get("map", {}).get("polyline")
                 splits_metric = data.get("splits_metric")
+                distance = data.get("distance")
 
                 if not activity_id:
                     logger.warning(f"Skipping {file_path.name}: Missing ID.")
@@ -93,17 +95,11 @@ class Heatmap(FeatureBase):
                 # Create GeoDataFrame of points to calculate distances accurately
                 points_gdf = gpd.GeoDataFrame(
                     [{"geometry": Point(p)} for p in coords_lonlat],
-                    crs="EPSG:4326",  # Polylines are always WGS84
+                    crs=f"EPSG:{self.settings.processing.map_crs_epsg}",  # Polylines are always WGS84
                 )
-                points_gdf_proj = points_gdf.to_crs(target_crs)
 
-                # Calculate cumulative distance along the projected path
-                distances = points_gdf_proj.geometry.distance(
-                    points_gdf_proj.geometry.shift()
-                ).fillna(0)
-                points_gdf_proj["cumulative_dist"] = distances.cumsum()
-                # Add original coords back for easy LineString creation later
-                points_gdf_proj["orig_coords"] = coords_lonlat
+                points_gdf["cumulative_dist"] = distance
+                points_gdf["orig_coords"] = coords_lonlat
 
                 # Process splits
                 current_split_start_dist = 0.0
@@ -135,7 +131,7 @@ class Heatmap(FeatureBase):
                     # End index: the first point whose cumulative distance *exceeds* the target end distance
                     # We include the point *before* this one to close the segment.
                     end_idx_candidates = np.where(
-                        points_gdf_proj["cumulative_dist"] >= split_target_end_dist
+                        points_gdf["cumulative_dist"] >= split_target_end_dist
                     )[0]
 
                     if len(end_idx_candidates) > 0:
@@ -143,14 +139,14 @@ class Heatmap(FeatureBase):
                         end_idx = end_idx_candidates[0]
                     else:
                         # If no point exceeds, it means the split ends after the last point (use all remaining)
-                        end_idx = len(points_gdf_proj) - 1
+                        end_idx = len(points_gdf) - 1
 
                     # Ensure we don't create segments with identical start/end indices from rounding issues
                     # And ensure we have at least two points to make a line
                     if end_idx <= start_idx:
                         # This can happen if a split distance is very small or points are coincident
                         # Try to take at least one segment if possible, or log warning
-                        if start_idx < len(points_gdf_proj) - 1:
+                        if start_idx < len(points_gdf) - 1:
                             end_idx = start_idx + 1
                         else:
                             logger.warning(
@@ -164,7 +160,7 @@ class Heatmap(FeatureBase):
                             continue  # Skip appending this segment
 
                     # Extract original (lon, lat) coordinates for this segment
-                    segment_coords = points_gdf_proj.iloc[start_idx : end_idx + 1][
+                    segment_coords = points_gdf.iloc[start_idx : end_idx + 1][
                         "orig_coords"
                     ].tolist()
 
@@ -207,18 +203,23 @@ class Heatmap(FeatureBase):
             return
 
         # Create final GeoDataFrame
-        self.gdf = gpd.GeoDataFrame(all_split_segments, crs="EPSG:4326")  # inline crs?
+        self.gdf = gpd.GeoDataFrame(all_split_segments, crs=self.settings.processing.map_crs_epsg)
         logger.info(
             f"Created GeoDataFrame with {len(self.gdf)} activity split segments."
             f"Initial CRS: {self.gdf.crs}"
         )
 
-        self.gdf = self._reproject_if_needed(self.gdf)  # Uses target_crs from settings
-        logger.info(f"Reprojected final LineString GDF CRS: {self.gdf.crs}")
+        self.gdf.rename(columns={"average_speed": "avg_speed"}, inplace=True)
 
         # Save intermediate file
         self._save_intermediate_gdf(self.gdf, "prepared_activity_splits_gpkg")
         logger.info("Activity split segments loaded and preprocessed.")
+
+        points_gdf = self._convert_segments_to_points(self.gdf)
+        points_gdf_sampled = self._sample_points(points_gdf)
+        points_gdf_filtered = self._filter_points_by_boundary(points_gdf_sampled)
+        self.train_gdf, self.test_gdf = self._split_train_test(points_gdf_filtered)
+        assert self.train_gdf is not None and self.test_gdf is not None, "Train/test split failed"
 
     def _extract_raster_values(self, points_gdf, raster_path):
         """Extracts raster values at point locations."""
@@ -274,19 +275,20 @@ class Heatmap(FeatureBase):
         """Converts LineString segments GeoDataFrame to a Point GeoDataFrame."""
         logger.info("Converting activity split segments (LineStrings) to points...")
         # Ensure only relevant columns are passed to avoid issues if gdf has complex types
-        cols_to_keep = ["average_speed", "geometry"]
+        cols_to_keep = ["avg_speed", "geometry"]
         points_gdf = polyline_to_points(segments_gdf[cols_to_keep])
         if points_gdf.empty:
             logger.warning("No points generated from activity segments.")
             return gpd.GeoDataFrame() # Return empty GDF
-        logger.info(f"Generated {len(points_gdf)} total points with 'average_speed'.")
+        logger.info(f"Generated {len(points_gdf)} total points with 'avg_speed'.")
+
         return points_gdf
 
     def _sample_points(self, points_gdf):
         """Samples a fraction of points from the GeoDataFrame."""
         sample_fraction = self.settings.processing.heatmap_sample_fraction
         sample_seed = self.settings.processing.seed
-        logger.info(f"Sampling {sample_fraction*100:.0f}% of points for IDW input...")
+        logger.info(f"Sampling {sample_fraction*100:.0f}% of points...")
         # Use settings from self.settings
         points_gdf_sampled = points_gdf.sample(
             frac=sample_fraction, random_state=sample_seed
@@ -295,7 +297,7 @@ class Heatmap(FeatureBase):
             logger.warning("Sampled points GeoDataFrame is empty.")
             return gpd.GeoDataFrame() # Return empty GDF
         logger.info(
-            f"Using {len(points_gdf_sampled)} sampled points for interpolation."
+            f"Using {len(points_gdf_sampled)} sampled points."
         )
         return points_gdf_sampled
 
@@ -315,19 +317,16 @@ class Heatmap(FeatureBase):
             )
 
             # Ensure boundary CRS matches points CRS
-            target_crs = self.settings.processing.output_crs_epsg
-            if oslo_boundary_gdf.crs.to_epsg() != target_crs:
+            if oslo_boundary_gdf.crs.to_epsg() != points_gdf.crs.to_epsg():
                 logger.warning(
-                    f"Reprojecting boundary from {oslo_boundary_gdf.crs} to EPSG:{target_crs}"
+                    f"Reprojecting boundary from {oslo_boundary_gdf.crs} to EPSG:{4326}"
                 )
-                oslo_boundary_gdf = oslo_boundary_gdf.to_crs(epsg=target_crs)
+                oslo_boundary_gdf = oslo_boundary_gdf.to_crs(epsg=points_gdf.crs.to_epsg())
 
             # Dissolve into a single boundary polygon
-            # Use unary_union for potentially overlapping polygons if dissolve fails or is slow
-            oslo_boundary_single = oslo_boundary_gdf.unary_union
+            oslo_boundary_single = oslo_boundary_gdf.union_all()
             logger.info("Dissolved boundary layer into a single polygon.")
 
-            # Filter sampled points
             logger.info("Filtering points within the dissolved boundary...")
             points_within_oslo = points_gdf[
                 points_gdf.within(oslo_boundary_single)
@@ -339,25 +338,17 @@ class Heatmap(FeatureBase):
 
         except ImportError:
              logger.warning("`pyogrio` not installed. Falling back to `fiona` for GDB reading. Performance may vary.")
-             # Fallback or specific handling if pyogrio isn't available
-             # This might involve slightly different reading logic if needed
-             # For now, assume gpd.read_file handles it via fiona if pyogrio missing
-             # Re-run the read operation within this block if specific fiona args are needed
-             # Re-dissolve logic might also need adjustment depending on fiona output
-             # For simplicity, we'll log and continue assuming basic read works.
              pass # Continue with the filtering logic below if read succeeded
         except Exception as e:
             logger.error(
                 f"Error loading or processing Oslo boundary: {e}. Proceeding without filtering.",
                 exc_info=True,
             )
-            # points_gdf_final remains the input points_gdf
 
         if points_gdf_final.empty:
             logger.warning(
                 "Final points GeoDataFrame (after potential filtering) is empty."
             )
-            # Return empty GDF, let caller handle
             return gpd.GeoDataFrame()
 
         return points_gdf_final
@@ -368,15 +359,13 @@ class Heatmap(FeatureBase):
             "Splitting filtered points into training and testing sets (80/20)..."
         )
         try:
-            # Rename target column for consistency before splitting
-            # Use settings from self.settings
             points_gdf_renamed = points_gdf.rename(
                 columns={"average_speed": "avg_speed"}
             )
             train_gdf, test_gdf = train_test_split(
                 points_gdf_renamed,
                 train_size=self.settings.processing.train_test_split_fraction,
-                random_state=42,  # For reproducibility
+                random_state=42,  
             )
             logger.info(
                 f"Train set size: {len(train_gdf)}, Test set size: {len(test_gdf)}"
@@ -392,9 +381,12 @@ class Heatmap(FeatureBase):
 
         return train_gdf, test_gdf
 
-    def _prepare_wbt_input(self, train_gdf):
+    def _preprocess_wbt_input(self, train_gdf):
         """Prepares and saves the training data to a temporary shapefile for WBT."""
         speed_field_shp = "avg_speed" # Use the renamed field
+
+        # Convert crs to EPSG:25833 for interpolation
+        train_gdf = self._prepare_for_wbt(train_gdf)
 
         # Ensure speed field is numeric
         if not train_gdf.empty and not pd.api.types.is_numeric_dtype(
@@ -429,6 +421,66 @@ class Heatmap(FeatureBase):
             logger.error(f"Error preparing WBT input shapefile: {e}", exc_info=True)
             return None, None, None # Indicate failure
 
+    def _postprocess_wbt_output(self, input_path: str, src_epsg=25833, dst_epsg=4326):
+        """
+        Post-processes WBT output raster by:
+        1. Assigning the correct CRS (typically EPSG:25833) since WBT doesn't set it
+        2. Reprojecting to the visualization CRS (EPSG:4326) for mapping in Folium
+        
+        Args:
+            input_path: Path to the WBT output raster
+            src_epsg: Source EPSG code (WBT interpolation CRS), defaults to 25833
+            dst_epsg: Destination EPSG code (visualization CRS), defaults to 4326
+            
+        Returns:
+            Path to the reprojected raster
+        """
+        logger.info(f"Post-processing WBT output: Reprojecting from EPSG:{src_epsg} to EPSG:{dst_epsg}")
+        input_path = Path(input_path)
+        output_path = input_path.with_name(f"{input_path.stem}_4326{input_path.suffix}")
+
+        # Step 1: Assign missing CRS on interpolated raster (WBT rasters are usually missing it)
+        with rasterio.open(input_path, mode="r+") as src:
+            if src.crs is None or src.crs.to_epsg() != src_epsg:
+                logger.info(f"Assigning CRS EPSG:{src_epsg} to WBT output raster")
+                src.crs = rasterio.crs.CRS.from_epsg(src_epsg)
+        
+        # Step 2: Reproject to visualization CRS (EPSG:4326)
+        with rasterio.open(input_path) as src:
+            transform, width, height = calculate_default_transform(
+                src.crs, dst_epsg, src.width, src.height, *src.bounds
+            )
+
+            with rasterio.open(output_path, 'w', driver="GTiff",
+                height=height, width=width,
+                count=1, dtype=src.dtypes[0],
+                crs=dst_epsg, transform=transform) as dst:
+                for i in range(1, src.count + 1):
+                    reproject(
+                        source=rasterio.band(src, i),
+                        destination=rasterio.band(dst, i),
+                        src_transform=src.transform,
+                        src_crs=src.crs,
+                        dst_transform=transform,
+                        dst_crs=dst_epsg,
+                        resampling=Resampling.bilinear
+                    )
+
+        # Step 3: Sanity check - ensure correct reprojection using gdalinfo
+        try:
+            subprocess.run(["gdalinfo", str(output_path)], check=True)
+            with rasterio.open(output_path) as dst:
+                if dst.crs.to_epsg() != dst_epsg:
+                    logger.warning(f"Reprojection issue: Output CRS is {dst.crs}, expected EPSG:{dst_epsg}")
+                else:
+                    logger.info(f"Successfully reprojected raster to EPSG:{dst_epsg}")
+        except Exception as e:
+            logger.error(f"Error verifying reprojected raster: {e}")
+
+
+        logger.info(f"Reprojected raster saved to: {output_path}")
+        return output_path
+
     def _verify_and_calculate_rmse(self, output_raster_path, train_gdf, test_gdf, speed_field_shp):
         """Verifies raster, assigns CRS, calculates RMSE, and saves results."""
         if not output_raster_path.is_file():
@@ -440,32 +492,6 @@ class Heatmap(FeatureBase):
         logger.info(
             f"WBT IDW interpolation completed. Output file found: {output_raster_path}"
         )
-        # --- Assign Correct CRS ---
-        try:
-            target_crs_epsg = self.settings.processing.output_crs_epsg
-            with rasterio.open(output_raster_path, "r+") as ds:
-                if (
-                    ds.crs is None
-                    or not ds.crs.is_valid
-                    or ds.crs.to_epsg() != target_crs_epsg
-                ):
-                    logger.warning(
-                        f"Output raster CRS is missing or incorrect ({ds.crs}). Assigning EPSG:{target_crs_epsg}."
-                    )
-                    ds.crs = rasterio.crs.CRS.from_epsg(target_crs_epsg)
-                else:
-                    logger.info(
-                        f"Output raster CRS already correctly set to {ds.crs}."
-                    )
-            logger.info(
-                f"Successfully assigned CRS EPSG:{target_crs_epsg} to {output_raster_path}"
-            )
-        except Exception as crs_e:
-            logger.error(
-                f"Error assigning CRS to {output_raster_path}: {crs_e}",
-                exc_info=True,
-            )
-            return None, None # Indicate failure
 
         # --- Calculate RMSE ---
         logger.info("--- Calculating RMSE ---")
@@ -475,6 +501,12 @@ class Heatmap(FeatureBase):
             train_gdf_pred = self._extract_raster_values(
                 train_gdf.copy(), output_raster_path
             )
+            logger.info(f"Extracted predicted values for {len(train_gdf_pred)} training points.")
+            logger.debug(f"{train_gdf_pred.head()}")
+            logger.info(f"Predicted crs: {train_gdf_pred.crs}")
+            logger.info(f"Train crs: {train_gdf.crs}")
+            logger.info(f"Test crs: {test_gdf.crs}")
+
             train_rmse = self._calculate_rmse(
                 train_gdf_pred,
                 actual_col=speed_field_shp,
@@ -515,9 +547,7 @@ class Heatmap(FeatureBase):
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "run_output_dir": self.settings.paths.output_dir.name,
                 "train_rmse": (
-                    f"{train_rmse:.4f}"
-                    if not np.isnan(train_rmse)
-                    else "NaN"
+                    f"{train_rmse:.4f}" if not np.isnan(train_rmse) else "NaN"
                 ),
                 "test_rmse": (
                     f"{test_rmse:.4f}" if not np.isnan(test_rmse) else "NaN"
@@ -544,6 +574,127 @@ class Heatmap(FeatureBase):
 
         return train_rmse, test_rmse # Return calculated RMSE values
 
+    def create_multi_layer_visualization(self, output_raster_path, train_gdf, test_gdf):
+        """
+        Creates a visualization showing train/test points, activity segments, and the output raster
+        using the display_multi_layer_on_folium_map utility function.
+        
+        Args:
+            output_raster_path (Path): Path to the output IDW raster.
+            train_gdf (gpd.GeoDataFrame): Training points GeoDataFrame with 'avg_speed' column.
+            test_gdf (gpd.GeoDataFrame): Testing points GeoDataFrame with 'avg_speed' column.
+            
+        Returns:
+            str: Path to the generated HTML map, or None if visualization failed.
+        """
+
+        if not output_raster_path.is_file():
+            logger.error(f"Raster file not found for visualization: {output_raster_path}")
+            return None
+        
+        if train_gdf is None or test_gdf is None:
+            logger.error("Train or test GeoDataFrame is None, cannot create visualization")
+            return None
+            
+        logger.info("Creating multi-layer visualization of heatmap components...")
+        
+        # Define output HTML path
+        output_html_path = self._get_output_path("heatmap_visualization_html")
+        
+        try:
+            # Prepare layer configurations for the multi-layer visualization
+            layers = []
+            
+            # 1. Add activity segments layer (original LineStrings)
+            if self.gdf is not None and not self.gdf.empty:
+                segment_path = self._get_output_path("activity_segments_viz")
+                # Save a copy for visualization
+                save_vector_data(self.gdf, segment_path)
+                
+                # Check if using ESRI Shapefile which truncates column names to 10 chars
+                if segment_path.suffix.lower() == '.shp':
+                    # Map original column names to their truncated versions for shapefiles
+                    tooltip_cols = ['activity_i', 'split', 'average_sp', 'split_dist']
+                    logger.info("Using truncated column names for shapefile tooltip: " + str(tooltip_cols))
+                else:
+                    # Use full column names for other formats
+                    tooltip_cols = ['activity_id', 'split', 'avg_speed', 'split_dist_m']
+                    
+                layers.append({
+                    'path': segment_path,
+                    'name': 'Activity Segments (Polylines)',
+                    'type': 'vector',
+                    'vector': {
+                        'style_column': 'avg_speed',
+                        'cmap': 'cool',
+                        'weight': 3,  # Slightly thicker to make polylines more visible
+                        'tooltip_cols': tooltip_cols,
+                        'show': True
+                    }
+                })
+            
+            # 2. Add training points layer
+            if not train_gdf.empty:
+                train_path = self._get_output_path("heatmap_train_points_viz")
+                save_vector_data(train_gdf, train_path)
+                layers.append({
+                    'path': train_path,
+                    'name': 'Training Points',
+                    'type': 'vector',
+                    'vector': {
+                        'style_column': 'avg_speed',
+                        'cmap': 'viridis',
+                        'radius': 3,
+                        'tooltip_cols': ['avg_speed'],
+                        'show': True
+                    }
+                })
+            
+            # 3. Add testing points layer
+            if not test_gdf.empty:
+                test_path = self._get_output_path("heatmap_test_points_viz")
+                save_vector_data(test_gdf, test_path)
+                layers.append({
+                    'path': test_path,
+                    'name': 'Testing Points',
+                    'type': 'vector',
+                    'vector': {
+                        'style_column': 'avg_speed',
+                        'cmap': 'viridis',
+                        'radius': 3,
+                        'tooltip_cols': ['avg_speed'],
+                        'show': True
+                    }
+                })
+            
+            # 4. Add the interpolated raster layer
+            layers.append({
+                'path': output_raster_path,
+                'name': 'Average Speed Raster (IDW)',
+                'type': 'raster',
+                'raster': {
+                    'cmap': 'plasma',
+                    'opacity': 0.7,
+                    'nodata_transparent': True,
+                    'target_crs_epsg': self.settings.processing.map_crs_epsg,
+                    'show': True
+                }
+            })
+            
+            # Create the multi-layer map
+            display_multi_layer_on_folium_map(
+                layers=layers,
+                output_html_path_str=str(output_html_path),
+                map_zoom=9,
+                map_tiles='CartoDB positron'
+            )
+            
+            logger.info(f"Multi-layer visualization created and saved to: {output_html_path}")
+            return str(output_html_path)
+            
+        except Exception as e:
+            logger.error(f"Error creating multi-layer visualization: {e}", exc_info=True)
+            return None
 
     @dask.delayed
     def _build_average_speed_raster(self):
@@ -571,24 +722,8 @@ class Heatmap(FeatureBase):
             return None
 
         # --- Data Preparation Pipeline ---
-        points_gdf = self._convert_segments_to_points(self.gdf)
-        if points_gdf.empty: 
-            return None
-
-        points_gdf_sampled = self._sample_points(points_gdf)
-        if points_gdf_sampled.empty: 
-            return None
-
-        points_gdf_filtered = self._filter_points_by_boundary(points_gdf_sampled)
-        if points_gdf_filtered.empty: 
-            return None
-
-        train_gdf, test_gdf = self._split_train_test(points_gdf_filtered) # Corrected variable name
-        if train_gdf is None or test_gdf is None: 
-            return None # Check for split failure
-
         # Prepare WBT input within a temporary directory context
-        input_shp_path, temp_dir_obj, speed_field_shp = self._prepare_wbt_input(train_gdf)
+        input_shp_path, _, speed_field_shp = self._preprocess_wbt_input(self.train_gdf.copy())
         if input_shp_path is None: 
             return None # Check for preparation failure
 
@@ -613,28 +748,19 @@ class Heatmap(FeatureBase):
                 min_points=self.settings.processing.heatmap_idw_min_points,
             )
             idw_success = True # Assume success if no exception
+            logger.info(
+                f"WBT IDW interpolation completed successfully. Output: {output_raster_path}"
+            )
+
+            output_raster_path = self._postprocess_wbt_output(str(output_raster_path), 25833, 4326)
 
         except Exception as e:
             logger.error(f"Error during WBT IDW interpolation call: {e}", exc_info=True)
-            # idw_success remains False
-
-        finally:
-            # --- Cleanup Temporary Directory ---
-            # This happens automatically when temp_dir_obj goes out of scope
-            # or explicitly via temp_dir_obj.cleanup() if needed sooner.
-            # We rely on the 'with' context or function exit for cleanup.
-            # Check if temp_dir_obj exists before trying to access its name or clean it up
-            if 'temp_dir_obj' in locals() and temp_dir_obj:
-                logger.info(f"Temporary directory {temp_dir_obj.name} will be cleaned up.")
-                # Explicit cleanup can be done here if needed: temp_dir_obj.cleanup()
-            else:
-                 logger.warning("Temporary directory object not created, skipping cleanup log.")
-
 
         # --- Verification & RMSE Calculation (only if IDW ran) ---
         if idw_success:
             train_rmse, test_rmse = self._verify_and_calculate_rmse(
-                output_raster_path, train_gdf, test_gdf, speed_field_shp
+                output_raster_path, self.train_gdf, self.test_gdf, speed_field_shp
             )
 
             # Check if verification/RMSE step indicated failure (e.g., file not found or RMSE calc failed)
@@ -656,19 +782,17 @@ class Heatmap(FeatureBase):
         if self.gdf is None:  # self.gdf stores the LineString segments from load_data
             self.load_data()
 
-        if self.gdf is None:  # Still None if loading failed
+        if self.gdf is None:  
             logger.error("Cannot build Heatmap features: Data loading failed.")
             return []  # Return empty list consistent with segments.py
 
-        # The task is now creating the raster file.
-        task = self._build_average_speed_raster() # This returns a dask.delayed object or None
+        task = self._build_average_speed_raster() 
 
         if task is None:
             logger.error("Failed to create delayed task for average speed raster.")
             return None # Return None if task creation failed
 
         logger.info("Returning delayed task for average speed raster computation.")
-        # Return the delayed object directly
         return task
 
 
@@ -691,17 +815,16 @@ if __name__ == "__main__":
         wbt = WhiteboxTools()  # Initialize WBT
         cluster = LocalCluster(
             n_workers=1, threads_per_worker=1
-        )  # Adjust workers as needed
+        )  
         client = Client(cluster)
         logger.info(f"Dask client started: {client.dashboard_link}")
 
         # --- Test Heatmap Feature ---
         try:
             logger.info("--- Testing Heatmap Feature ---")
-            # Pass the initialized wbt instance
             heatmap_feature = Heatmap(settings, wbt)
 
-            logger.info("1. Testing Heatmap Load Data...")
+            logger.info("1. Heatmap Load Data...")
             heatmap_feature.load_data()
             if heatmap_feature.gdf is not None:
                 logger.info(
@@ -710,7 +833,7 @@ if __name__ == "__main__":
             else:
                 logger.error("Heatmap GDF is None after loading.")
 
-            logger.info("2. Testing Heatmap Build (Average Speed Raster)...")
+            logger.info("2. Heatmap Build (Average Speed Raster)...")
             if heatmap_feature.gdf is not None:
                 # Build returns a single delayed task or None
                 delayed_task = heatmap_feature.build()
@@ -723,19 +846,26 @@ if __name__ == "__main__":
                     # --- Display Raster on Folium Map using utility function ---
                     if computed_result is not None:
                         path_str = computed_result # Should be the path string
+                        raster_path = Path(path_str)
+                        logger.info(f"Raster path: {raster_path}")
+
                         logger.info(f"Generated Average Speed Raster: {path_str}")
                         try:
-                            # Define output path for the map
-                            map_output_path = settings.paths.output_dir / f"{Path(path_str).stem}_map.html"
-                            # Call the utility function
-                            display_raster_on_folium_map(
-                                raster_path_str=path_str,
-                                output_html_path_str=str(map_output_path),
-                                target_crs_epsg=settings.processing.output_crs_epsg,
-                                # Optional: Add other parameters like cmap_name, opacity if needed
+                            # Create the multi-layer visualization with train/test points and segments
+                            logger.info("Creating multi-layer visualization with points and segments...")
+                            
+                            multi_viz_path = heatmap_feature.create_multi_layer_visualization(
+                                output_raster_path=raster_path,
+                                train_gdf=heatmap_feature.train_gdf,
+                                test_gdf=heatmap_feature.test_gdf
                             )
+                            if multi_viz_path:
+                                logger.info(f"Multi-layer visualization created: {multi_viz_path}")
+                            else:
+                                logger.warning("Failed to create multi-layer visualization")
+ 
                         except Exception as display_e:
-                            logger.error(f"Error displaying raster {path_str} on map: {display_e}", exc_info=True)
+                            logger.error(f"Error displaying visualizations for {path_str}: {display_e}", exc_info=True)
                     else:
                         logger.warning("No valid raster path generated after computing build task. Skipping map display.")
                 else:

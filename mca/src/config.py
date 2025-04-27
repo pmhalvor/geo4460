@@ -189,9 +189,16 @@ class OutputFilesConfig(BaseModel):
     elevation_dem_raster: str = "elevation_dem.tif"
     slope_raster: str = "slope.tif"
     cost_function_raster: str = "cost_function.tif"
-    normalized_cost_distance: str = "normalized_cost_distance.tif"
+    normalized_cost_layer: str = "normalized_cost.tif"  # Normalized cost distance
     rasterized_roads_mask: str = "rasterized_roads_mask.tif"  # Mask for roads
     aligned_speed_raster: str = "aligned_speed.tif"  # Aligned speed raster for overlay
+
+    # visualizations
+    heatmap_visualization_html: str = "heatmap_visualization.html"  
+    activity_segments_viz: str = "activity_segments_visualization.html"  
+    heatmap_train_points_viz: str = "heatmap_train_points_visualization.html"
+    heatmap_test_points_viz: str = "heatmap_test_points_visualization.html"
+    cost_layer_visualization_html: str = "cost_layer_visualization.html"
 
     # Feature Vectors (alternative to rasters)
     segment_popularity_vector_prefix: str = (
@@ -228,7 +235,9 @@ class ProcessingConfig(BaseModel):
     dask_workers: int = 4  # Number of Dask workers for parallel processing
 
     # General Raster Settings
-    output_crs_epsg: int = 25833  # UTM Zone 33N for Oslo
+    interpolation_crs_epsg: int = 25833  # UTM Zone 33N for Oslo
+    map_crs_epsg: int = 4326  # WGS 84 for map display
+    output_crs_epsg: int = 25833  # UTM Zone 33N for wbt  # TODO remove from collect/*.py
     output_cell_size: float = 15.0  # Meters, adjust as needed
     seed: int = 42  # Random seed for reproducibility
     train_test_split_fraction: float = 0.8  # Fraction of data for training
@@ -287,7 +296,7 @@ class ProcessingConfig(BaseModel):
     heatmap_idw_radius: float = 500.0  # Search radius for IDW (meters)
     heatmap_idw_min_points: int = 150  # Minimum number of points required within radius
     heatmap_sample_fraction: float = (
-        0.5  # Fraction of speed points to build raster from
+        0.75  # Fraction of speed points to build raster from
     )
 
     # Elevation settings 
@@ -323,7 +332,7 @@ class ProcessingConfig(BaseModel):
     # cost_road_restriction_value: Optional[float] = None # Kept commented out as masking is preferred
 
     # displays
-    display_segments: bool = False  # Whether to display segments on the map
+    display_segments: bool = True  # Whether to display segments on the map
 
     # Overlay Settings
     overlay_popularity_threshold: Optional[float] = Field(
@@ -339,7 +348,7 @@ class ProcessingConfig(BaseModel):
         description="Traffic density threshold for Overlay C."
     )
     overlay_cost_threshold: Optional[float] = Field(
-        default=0.75, # Example: Normalized cost (lower is better, so threshold might be < X)
+        default=0.3, # Example: Normalized cost (lower is better)
         description="Normalized cost distance threshold for Overlay D (e.g., keep segments with cost < threshold)."
     )
 

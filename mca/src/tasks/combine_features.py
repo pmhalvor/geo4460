@@ -5,7 +5,6 @@ import rasterio
 import rasterio.sample
 import numpy as np
 import pandas as pd
-from shapely.geometry import Point
 from whitebox import WhiteboxTools
 
 # Local imports
@@ -354,12 +353,15 @@ def build_overlay_d(
         except Exception as e:
             logger.error(f"Error copying Overlay C to D: {e}")
             return None
+    if "4326" not in str(cost_raster_path):
+        cost_raster_path = cost_raster_path.with_name(cost_raster_path.stem + "_4326").with_suffix(".tif")
+    logger.info(f"Using reprojected cost raster: {cost_raster_path}")
 
     overlay_c_gdf = load_vector_data(overlay_c_path)
     if overlay_c_gdf.empty:
         logger.warning("Overlay C input is empty. Skipping Overlay D.")
-        save_vector_data(overlay_c_gdf, output_path, driver="GPKG") # Save empty file
-        return output_path
+        # save_vector_data(overlay_c_gdf, output_path, driver="GPKG") # Save empty file
+        return None # Return None to indicate no output
 
     # Sample cost raster values along the segment lines
     stat_col_name = "avg_cost"
@@ -368,18 +370,32 @@ def build_overlay_d(
         overlay_c_gdf, cost_raster_path, stat_col_name, stat="mean"
     )
 
+    # --- Debug: Log avg_cost stats before filtering ---
+    if stat_col_name in overlay_d_gdf.columns and not overlay_d_gdf[stat_col_name].isnull().all():
+        logger.info(f"Debug: Stats for '{stat_col_name}' before filtering:")
+        logger.info(f"  Min: {overlay_d_gdf[stat_col_name].min():.4f}")
+        logger.info(f"  Max: {overlay_d_gdf[stat_col_name].max():.4f}")
+        logger.info(f"  Mean: {overlay_d_gdf[stat_col_name].mean():.4f}")
+        logger.info(f"  Median: {overlay_d_gdf[stat_col_name].median():.4f}")
+        logger.info(f"  NaN count: {overlay_d_gdf[stat_col_name].isnull().sum()}")
+    elif stat_col_name in overlay_d_gdf.columns:
+         logger.warning(f"Debug: Column '{stat_col_name}' found but contains only NaN values.")
+    else:
+        logger.warning(f"Debug: Column '{stat_col_name}' not found before filtering.")
+    # --- End Debug ---
+
+
     # Filter based on cost threshold from config (lower cost is better)
     cost_threshold = settings.processing.overlay_cost_threshold
     if cost_threshold is not None and stat_col_name in overlay_d_gdf.columns:
         initial_count_cost = len(overlay_d_gdf)
-        # Keep segments where cost is BELOW threshold OR cost is NaN
-        overlay_d_gdf = overlay_d_gdf[
-            (overlay_d_gdf[stat_col_name] < cost_threshold) | overlay_d_gdf[stat_col_name].isna()
-        ]
+        # Keep segments where cost is BELOW threshold (implicitly drops NaN)
+        # Note: NaN comparisons like NaN < threshold evaluate to False
+        overlay_d_gdf = overlay_d_gdf[overlay_d_gdf[stat_col_name] < cost_threshold]
         filtered_count_cost = len(overlay_d_gdf)
         logger.info(
             f"Filtered Overlay D based on {stat_col_name} < {cost_threshold} (normalized). "
-            f"Retained {filtered_count_cost}/{initial_count_cost} segments (including NaN cost)."
+            f"Retained {filtered_count_cost}/{initial_count_cost} segments (NaN costs excluded)."
         )
     elif cost_threshold is not None:
          logger.warning(f"Cost threshold ({cost_threshold}) defined, but column '{stat_col_name}' not found for filtering.")
@@ -423,6 +439,12 @@ def combine_features_task(
     prepared_roads_no_lanes_path = _to_path(feature_results.get("road_vectors", {}).get("roads_simple_diff_lanes"))
     avg_speed_raster_path = _to_path(feature_results.get("speed_raster"))
     cost_raster_path = _to_path(feature_results.get("cost_raster"))
+
+    # Check if the cost raster is in EPSG:4326
+    if cost_raster_path and "4326" not in str(cost_raster_path):
+        # Reproject the cost raster to EPSG:4326
+        cost_raster_path = cost_raster_path.with_name(cost_raster_path.stem + "_4326").with_suffix(".tif")
+        logger.info(f"Using reprojected cost raster: {cost_raster_path}")
 
     # Handle potential list of traffic rasters from build_features_task
     traffic_raster_input = feature_results.get("traffic_raster")
@@ -538,32 +560,34 @@ def _sample_raster_along_lines(
         raise ValueError("Input GeoDataFrame for sampling must have a CRS defined.")
 
     logger.info(f"Sampling raster '{raster_path.name}' along {len(gdf)} lines for '{stat_col_name}' (stat: {stat}).")
+    logger.info(f"gdf crs: {gdf.crs}")
 
-    results = []
+    # results = []
     with rasterio.open(raster_path) as src:
         raster_crs = src.crs
         if raster_crs is None:
              raise ValueError(f"Raster file {raster_path} is missing CRS information.")
+        logger.info(f"Raster crs: {raster_crs}")
 
-        # Reproject GDF to match raster CRS if necessary
-        gdf_proj = gdf
         if gdf.crs != raster_crs:
-            logger.warning(f"Reprojecting vector data from {gdf.crs} to {raster_crs} for sampling.")
-            try:
-                # Use utils function for robust reprojection
-                gdf_proj = reproject_gdf(gdf, raster_crs)
-            except Exception as reproj_e:
-                logger.error(f"Reprojection failed during sampling: {reproj_e}", exc_info=True)
-                # Add NaN column and return original GDF structure but with original CRS
-                gdf_out = gdf.copy()
-                gdf_out[stat_col_name] = np.nan
-                return gdf_out
+            logger.warning(f"CRS mismatch: gdf ({gdf.crs}) vs raster ({raster_crs}). Skipping.")
+            return gdf # Return original GDF if CRS mismatch
+        #     logger.warning(f"Reprojecting vector data from {gdf.crs} to {raster_crs} for sampling.")
+        #     try:
+        #         # Use utils function for robust reprojection
+        #         gdf_proj = reproject_gdf(gdf, raster_crs)
+        #     except Exception as reproj_e:
+        #         logger.error(f"Reprojection failed during sampling: {reproj_e}", exc_info=True)
+        #         # Add NaN column and return original GDF structure but with original CRS
+        #         gdf_out = gdf.copy()
+        #         gdf_out[stat_col_name] = np.nan
+        #         return gdf_out
 
         # Prepare list to store coordinates for sampling
         all_coords = []
         line_indices = [] # Keep track of which line each set of points belongs to
 
-        for index, geom in enumerate(gdf_proj.geometry):
+        for index, geom in enumerate(gdf.geometry):
             if geom is None or geom.is_empty or geom.geom_type != 'LineString':
                 # Handle non-LineString or empty geometries - they get NaN later
                 continue
@@ -621,7 +645,7 @@ def _sample_raster_along_lines(
         # The line_stats Series index corresponds to the enumerated index used earlier
         # We need to map this back to the original gdf index if they differ (e.g., if gdf_proj was filtered)
         # A safer way is to create a mapping from the enumerated index back to the original gdf index
-        index_map = {i: idx for i, idx in enumerate(gdf_proj.index)}
+        index_map = {i: idx for i, idx in enumerate(gdf.index)}
         mapped_stats = pd.Series(line_stats.index).map(index_map).map(line_stats)
         mapped_stats.index = line_stats.index.map(index_map) # Align index for assignment
 
@@ -653,39 +677,44 @@ if __name__ == "__main__":
     # Use settings loaded from config.py
     settings = app_settings
     # Define the specific output directory from the previous run to use as input
-    # !! User needs to ensure this directory exists and contains the expected files !!
-    previous_run_output_dir = settings.paths.base_dir / "output" / "mca_20250424_1228_workflow"
+    previous_run_name = "mca_20250426_2122_workflow"
+    previous_run_output_dir = settings.paths.base_dir / "output" / previous_run_name
     logger.info(f"Using input features from: {previous_run_output_dir}")
 
     # Define the output directory for this test run's overlays and maps
-    test_output_dir = settings.paths.base_dir / "output" / "mca_combine_features_test"
+    test_output_dir = settings.paths.base_dir / "output" / "mca_combine_features_test_2"
     test_output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Saving test outputs (overlays, maps) to: {test_output_dir}")
     # Override the default output dir in settings for this run
     settings.paths.output_dir = test_output_dir
 
-
     # Check if previous run directory exists
     if not previous_run_output_dir.is_dir():
         logger.error(f"Input directory from previous run not found: {previous_run_output_dir}")
-        logger.error("Please ensure the 'mca_20250424_1228_workflow' output exists or modify the path.")
+        logger.error(f"Please ensure the '{previous_run_name}' output exists or modify the path.")
         sys.exit(1)
 
     # --- Mock feature_results dictionary ---
     # Construct paths based on the previous run directory and expected filenames from config
     feature_results_mock = {
         "prepared_segments": previous_run_output_dir / settings.output_files.prepared_segments_gpkg,
-        "prepared_roads_no_lanes": previous_run_output_dir / settings.output_files.prepared_roads_all_diff_lanes_gpkg, # Assuming this is the 'no lanes' layer needed
+        "road_vectors": {
+            "roads_simple_diff_lanes": previous_run_output_dir / settings.output_files.prepared_roads_simple_diff_lanes_gpkg,
+        },
         "speed_raster": previous_run_output_dir / settings.output_files.average_speed_raster,
-        # Assuming the 'traffic_raster' key from build_features points to the daytime one for this test
         "traffic_raster": previous_run_output_dir / settings.output_files.traffic_density_raster_daytime,
-        "cost_raster": previous_run_output_dir / settings.output_files.normalized_cost_distance,
+        "cost_raster": previous_run_output_dir / settings.output_files.normalized_cost_layer,
     }
 
     # Verify that input files exist
     missing_inputs = []
     for key, path in feature_results_mock.items():
-        if not path or not Path(path).exists():
+        if type(path) is dict: # needed for road_vectors
+            # Check nested dictionary for road vectors
+            for sub_key, sub_path in path.items():
+                if not sub_path or not Path(sub_path).exists():
+                    missing_inputs.append(f"{key} ({sub_key}) ({sub_path})")
+        elif not path or not Path(path).exists():
             missing_inputs.append(f"{key} ({path})")
 
     if missing_inputs:
@@ -743,6 +772,13 @@ if __name__ == "__main__":
         "traffic": feature_results_mock.get("traffic_raster"), # This might be daytime, adjust if needed
         "cost": feature_results_mock.get("cost_raster"),
     }
+
+    # check cost raster has been reprojected
+    if input_rasters_to_display['cost'] and "4326" not in str(input_rasters_to_display['cost']):
+        input_rasters_to_display['cost'] = input_rasters_to_display['cost'].with_name(input_rasters_to_display['cost'].stem + "_4326").with_suffix(".tif")
+        logger.info(f"Using reprojected cost raster: {input_rasters_to_display['cost']}")
+
+
     # Log which input rasters are being included
     logger.info("Input rasters for combined map:")
     for name, path in input_rasters_to_display.items():
