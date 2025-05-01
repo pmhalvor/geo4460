@@ -102,24 +102,24 @@ class Roads(FeatureBase):
                  self._save_intermediate_gdf(diff_gdf, output_filename_attr)
                  return diff_gdf
 
-
         logger.info(f"Calculating difference for '{output_filename_attr}'...")
         try:
-            # Buffer the layer being subtracted slightly for more robust difference
-            # Ensure CRS is consistent before buffering/overlay
-            if gdf_base.crs != gdf_subtract.crs:
-                 logger.warning(f"CRS mismatch for difference operation '{output_filename_attr}'. Reprojecting subtract layer.")
-                 gdf_subtract = gdf_subtract.to_crs(gdf_base.crs)
+            # Buffer the bike lanes layer
+            logger.info("Buffering bike lanes...")
+            buffer_size = self.settings.processing.bike_lane_buffer  # Get buffer size from config
+            gdf_subtract_buffered = gdf_subtract.copy()
+            gdf_subtract_buffered['geometry'] = gdf_subtract_buffered.geometry.buffer(buffer_size)
 
-            buffered_subtract = gpd.GeoDataFrame(
-                geometry=gdf_subtract.buffer(buffer_subtract), crs=gdf_subtract.crs
-            )
+            # Ensure CRS is consistent before buffering/overlay
+            if gdf_base.crs != gdf_subtract_buffered.crs:
+                 logger.warning(f"CRS mismatch for difference operation '{output_filename_attr}'. Reprojecting subtract layer.")
+                 gdf_subtract_buffered = gdf_subtract_buffered.to_crs(gdf_base.crs)
 
             # Perform overlay using GeoPandas
             # Note: overlay might be slow for large datasets
             diff_gdf = gpd.overlay(
                 gdf_base,
-                buffered_subtract,
+                gdf_subtract_buffered,
                 how="difference",
                 keep_geom_type=True, # Keep original geometry type (LineString)
             )
