@@ -289,6 +289,9 @@ class ProcessingConfig(BaseModel):
         default=5.0, description="Optional buffer for road/lane matching (meters)"
     )  # TODO remove if not used
     slope_units: str = "degrees"  # 'degrees' or 'percent'
+    bike_lane_buffer: float = Field(
+        default=5.0, description="Buffer size for bike lanes (meters)"
+    )
 
     # Heatmap (Average Speed) IDW Settings
     heatmap_idw_cell_size: float = 10.0  # Cell size for the output raster (meters)
