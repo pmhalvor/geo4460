@@ -1,0 +1,180 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36" version="26.2.14">
+  <diagram id="C5RBs43oDa-KdzZeNtuy" name="Page-1">
+    <mxGraphModel dx="1490" dy="1088" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="WIyWlLk6GJQsqaUBKTNV-0" />
+        <mxCell id="WIyWlLk6GJQsqaUBKTNV-1" parent="WIyWlLk6GJQsqaUBKTNV-0" />
+        <mxCell id="RkvCy6xqd7KVNXWByCah-5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-0" target="RkvCy6xqd7KVNXWByCah-4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-0" value="Roads in Oslo" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="80" y="50" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-1" target="RkvCy6xqd7KVNXWByCah-9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-1" value="Strava &lt;br&gt;Segments" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="230" y="50" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-17" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-2" target="RkvCy6xqd7KVNXWByCah-16">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-2" value="Strava&lt;br&gt;Activities" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="380" y="50" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-26" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-3" target="RkvCy6xqd7KVNXWByCah-25">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-3" value="Traffic" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="530" y="50" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-4" target="RkvCy6xqd7KVNXWByCah-6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-4" value="Filter" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="100" y="150" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-14" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-6" target="RkvCy6xqd7KVNXWByCah-13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-49" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;dashed=1;strokeWidth=2;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-6" target="RkvCy6xqd7KVNXWByCah-44">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="110" y="480" />
+              <mxPoint x="740" y="480" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-6" value="Roads w/o &lt;br&gt;bike lanes" style="whiteSpace=wrap;html=1;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="80" y="270" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-35" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-8" target="RkvCy6xqd7KVNXWByCah-34">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-8" value="Elevation" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="680" y="50" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-12" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-9" target="RkvCy6xqd7KVNXWByCah-11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-9" value="Calculate&lt;br&gt;metrics" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="250" y="150" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-11" target="RkvCy6xqd7KVNXWByCah-13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-11" value="Segments w/&lt;br&gt;popularity score" style="whiteSpace=wrap;html=1;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="230" y="270" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-23" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-13" target="RkvCy6xqd7KVNXWByCah-22">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-13" value="&lt;i&gt;Overlay A&lt;/i&gt;&lt;br&gt;Popular segments&lt;br&gt;w/o bike lanes" style="whiteSpace=wrap;html=1;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="150" y="390" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-19" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-16" target="RkvCy6xqd7KVNXWByCah-18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-16" value="Convert&lt;br&gt;to points&lt;br&gt;w/ speed" style="ellipse;whiteSpace=wrap;html=1;rounded=0;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="400" y="150" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-21" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-18" target="RkvCy6xqd7KVNXWByCah-20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-18" value="Points&lt;br&gt;to raster" style="ellipse;whiteSpace=wrap;html=1;rounded=0;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="400" y="260" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-24" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-20" target="RkvCy6xqd7KVNXWByCah-22">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-47" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;dashed=1;strokeWidth=2;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-20">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="740" y="500" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="470" y="470" />
+              <mxPoint x="740" y="470" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-20" value="Average speed raster" style="whiteSpace=wrap;html=1;rounded=0;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="380" y="390" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-33" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-22" target="RkvCy6xqd7KVNXWByCah-31">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-22" value="&lt;i&gt;Overlay B&lt;/i&gt;&lt;br&gt;Popular segments&lt;br&gt;w/o bike lanes&lt;br&gt;w/ high avg. speed" style="whiteSpace=wrap;html=1;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="270" y="540" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-28" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-25" target="RkvCy6xqd7KVNXWByCah-27">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-25" value="Group&lt;br&gt;by time&lt;br&gt;of day" style="ellipse;whiteSpace=wrap;html=1;rounded=0;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="550" y="150" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-30" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-27" target="RkvCy6xqd7KVNXWByCah-29">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-27" value="Points&lt;br&gt;to raster" style="ellipse;whiteSpace=wrap;html=1;rounded=0;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="550" y="260" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-32" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-29" target="RkvCy6xqd7KVNXWByCah-31">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="590" y="620" />
+              <mxPoint x="474" y="620" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-29" value="Average traffic raster" style="whiteSpace=wrap;html=1;rounded=0;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="530" y="390" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-53" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-31" target="RkvCy6xqd7KVNXWByCah-50">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-31" value="&lt;i&gt;Overlay C&lt;/i&gt;&lt;br&gt;Popular segments&lt;br&gt;w/o bike lanes&lt;br&gt;w/ high avg. speed&lt;br&gt;w/ high car traffic" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="414" y="640" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-37" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-34" target="RkvCy6xqd7KVNXWByCah-36">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-34" value="Contour lines&lt;br&gt;to points" style="ellipse;whiteSpace=wrap;html=1;rounded=0;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="700" y="150" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-41" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-36" target="RkvCy6xqd7KVNXWByCah-40">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-36" value="Points&lt;br&gt;to DEM" style="ellipse;whiteSpace=wrap;html=1;rounded=0;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="700" y="260" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-45" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-40" target="RkvCy6xqd7KVNXWByCah-44">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-40" value="DEM&amp;nbsp;&lt;div&gt;to &lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;slope&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;raster&lt;/span&gt;&lt;/div&gt;" style="ellipse;whiteSpace=wrap;html=1;rounded=0;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="700" y="370" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-52" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" target="RkvCy6xqd7KVNXWByCah-50">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="730" y="560" as="sourcePoint" />
+            <mxPoint x="660" y="820" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="730" y="740" />
+              <mxPoint x="660" y="740" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-44" value="Cost layer" style="whiteSpace=wrap;html=1;rounded=0;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="680" y="500" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-55" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="WIyWlLk6GJQsqaUBKTNV-1" source="RkvCy6xqd7KVNXWByCah-50" target="RkvCy6xqd7KVNXWByCah-54">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-50" value="&lt;i&gt;Overlay D&lt;/i&gt;&lt;br&gt;Popular segments&lt;br&gt;w/o bike lanes&lt;br&gt;w/ high avg. speed&lt;br&gt;w/ high car traffic&lt;br&gt;w/ low cost" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="600" y="760" width="120" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="RkvCy6xqd7KVNXWByCah-54" value="Final map" style="whiteSpace=wrap;html=1;rounded=0;" vertex="1" parent="WIyWlLk6GJQsqaUBKTNV-1">
+          <mxGeometry x="600" y="890" width="120" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
