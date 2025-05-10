@@ -80,6 +80,7 @@ class Heatmap(FeatureBase):
         activity_dir = self.settings.paths.activity_details_dir
         if not activity_dir.is_dir():
             logger.error(f"Activity details directory not found: {activity_dir}")
+            logger.info(f"Run src/collect/activity_details.py to download activity details.")
             self.gdf = None
             return
 
