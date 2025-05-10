@@ -8,13 +8,15 @@ HOUR_TRAFFIC_PATH = "data/traffic/all-oslo-bikes-hour_20240401T0000_20240501T000
 OSLO_STATION_SHAPEFILE_PATH = "data/traffic/oslo_stations.shp"
 OSLO_STATION_GEOJSON_PATH = "data/traffic/oslo_stations.geojson"
 ROAD_CATEGORY_IDS = [
-    "e",  # European
-    "r",  # National
-    "f",  # County
-    "k",  # Municipal
-    "p",  # Private
+    "all",  # All stations in same list
+    # "e",  # European
+    # "r",  # National
+    # "f",  # County
+    # "k",  # Municipal
+    # "p",  # Private
 ]
-STATIONS_PATH_TEMPLATE = "data/traffic/stations_{id}_road.json"
+# STATIONS_PATH_TEMPLATE = "data/traffic/stations_{id}_road.json"
+STATIONS_PATH_TEMPLATE = "data/traffic/stations_{id}_roads.json"
 
 
 def get_stations_gdf():
