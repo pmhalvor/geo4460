@@ -30,10 +30,11 @@ class CostLayer(FeatureBase):
     """
     Calculates a cost surface based on slope, speed, and road restrictions.
 
+    Input layers (slope, speed impact) are normalized and then weighted to calculate cost.
     The cost function prioritizes lower slopes and adjusts based on speed relative
     to a threshold (6 m/s). Travel is restricted to buffered road areas.
-    The final output is normalized to a 0-1 scale, where 0 is lowest cost
-    and 1 is highest/impossible cost.
+    The final output represents a cost value (lower is better), with non-road areas
+    assigned a very high cost.
     """
 
     # Define constants for clarity
@@ -77,13 +78,42 @@ class CostLayer(FeatureBase):
         self.template_profile = get_raster_profile(self.slope_raster_path)
         logger.info("Input paths validated and template profile loaded.")
 
-
     def _get_template_profile(self) -> dict:
         """Returns the loaded template raster profile."""
         if self.template_profile is None:
              # Should have been loaded in load_data, but load again if needed
              self.template_profile = get_raster_profile(self.slope_raster_path)
         return self.template_profile
+
+    def _normalize_array_0_1(self, array_data: np.ndarray, nodata_val_in_source=None) -> np.ndarray:
+        """
+        Normalizes a numpy array to the 0-1 range.
+        NaNs or specified nodata_val_in_source in the input are preserved as NaNs in the output.
+        """
+        normalized_array = array_data.copy().astype(np.float32)
+        
+        nan_mask_orig = np.isnan(normalized_array)
+        if nodata_val_in_source is not None:
+            # Combine original NaNs with new NaNs from nodata_val_in_source
+            nan_mask = nan_mask_orig | (normalized_array == nodata_val_in_source)
+            normalized_array[nan_mask] = np.nan 
+        else:
+            nan_mask = nan_mask_orig
+
+        valid_values = normalized_array[~nan_mask]
+
+        if valid_values.size > 0:
+            min_val = np.min(valid_values)
+            max_val = np.max(valid_values)
+
+            if max_val > min_val:
+                normalized_array[~nan_mask] = (valid_values - min_val) / (max_val - min_val)
+            else: # All valid values are the same (or only one valid value)
+                normalized_array[~nan_mask] = 0.0 # Assign 0.0 if no variation or single value
+        
+        # Ensure original NaNs (if nodata_val_in_source was None) or new NaNs are set
+        normalized_array[nan_mask] = np.nan
+        return normalized_array
         
     def _postprocess_raster_crs(self, input_path: str, src_epsg=25833, dst_epsg=4326):
         """
@@ -228,20 +258,24 @@ class CostLayer(FeatureBase):
         try:
             slope_data, slope_profile = load_raster_data(self.slope_raster_path)
             # Ensure slope data is float for calculations
-            slope_data = slope_data.astype(np.float32)
+            slope_data = slope_data.astype(np.float32) # Ensure float for calculations
 
             # Handle potential NoData values in slope
             nodata_val = slope_profile.get("nodata")
-            if nodata_val is not None:
-                slope_data[slope_data == nodata_val] = np.nan # Use NaN internally
-
-            # Apply weight (cost increases with slope)
+            # Normalization handles nodata/NaNs internally
+            
+            # Normalize raw slope data to a [0,1] factor
+            # Higher slope values will result in higher normalized factors (closer to 1)
+            logger.info("Normalizing raw slope data to [0,1] factor...")
+            normalized_slope_factor = self._normalize_array_0_1(slope_data, nodata_val_in_source=nodata_val)
+            
+            # Apply weight: cost increases with normalized slope factor
             slope_weight = self.settings.processing.cost_slope_weight
-            slope_cost = slope_data * slope_weight
-
-            # Ensure non-negative costs (slope should be non-negative anyway)
-            slope_cost[slope_cost < 0] = 0
-            logger.info("Slope cost calculation complete.")
+            slope_cost = normalized_slope_factor * slope_weight
+            
+            # NaNs from normalization will propagate.
+            # Values will be in range [0, slope_weight] or NaN.
+            logger.info(f"Slope cost calculation complete. Range: [0, {slope_weight}] (plus NaNs).")
             return slope_cost
 
         except Exception as e:
@@ -286,17 +320,27 @@ class CostLayer(FeatureBase):
 
             # Cost modifier: positive for slow speeds, negative for fast speeds
             # Formula: weight * (threshold - speed)
-            # Example: speed=4 -> weight*(6-4)=2*weight (positive cost)
-            # Example: speed=8 -> weight*(6-8)=-2*weight (negative cost/benefit)
-            speed_cost_modifier = speed_weight * (speed_threshold - speed_data)
+            # Example: speed=4, threshold=6 -> raw_effect = 2 (higher cost implication)
+            # Example: speed=8, threshold=6 -> raw_effect = -2 (lower cost implication/benefit)
+            raw_speed_effect = speed_threshold - speed_data
 
-            # Set NoData areas in the modifier back to NaN
-            if speed_mask is not None:
-                speed_cost_modifier[speed_mask] = np.nan
+            # Normalize this raw_speed_effect to a [0,1] factor
+            # Lowest raw_speed_effect (max benefit) maps to 0
+            # Highest raw_speed_effect (max penalty) maps to 1
+            logger.info("Normalizing raw speed effect to [0,1] factor...")
+            # Pass nodata_val from speed_profile if speed_mask was created from it
+            # If speed_mask is None, it means nodata_val was None or not used for masking raw_speed_effect
+            speed_nodata_for_norm = nodata_val if speed_mask is not None else None
+            normalized_speed_effect_factor = self._normalize_array_0_1(raw_speed_effect, nodata_val_in_source=speed_nodata_for_norm)
+            # If raw_speed_effect had NaNs (from speed_mask), normalized_speed_effect_factor will also have them.
 
-            logger.info("Speed cost calculation complete.")
+            # Apply weight: cost modifier increases with normalized speed effect factor
+            speed_cost_modifier = speed_weight * normalized_speed_effect_factor
+            # Values will be in range [0, speed_weight] or NaN.
+            
+            logger.info(f"Speed cost modifier calculation complete. Range: [0, {speed_weight}] (plus NaNs).")
             return speed_cost_modifier
-
+            
         except FileNotFoundError:
              logger.error(f"Aligned speed raster not found after alignment attempt: {aligned_speed_path}. Skipping speed cost.")
              return None
@@ -324,21 +368,20 @@ class CostLayer(FeatureBase):
             if speed_cost_modifier is not None:
                 # Ensure alignment (should be guaranteed by previous steps, but double-check shape)
                 if combined_cost.shape != speed_cost_modifier.shape:
-                     logger.error("Shape mismatch between slope cost and speed cost modifier. Cannot combine.")
-                     return None
-                # Add modifier, handling NaNs (NaN in modifier should not zero out slope cost)
-                combined_cost = np.nansum(np.stack([combined_cost, speed_cost_modifier]), axis=0)
-                # Where speed was NaN, cost should revert to just slope cost (nansum treats NaN as 0)
-                # We need to restore NaN where *both* were NaN, or where speed was NaN and slope wasn't
-                # Let's handle NaN propagation carefully. If speed is NaN, cost is slope_cost.
-                # If slope is NaN, cost is NaN. # TODO revisit on a fresh mind to ensure logic still checks out
-                mask_speed_nan = np.isnan(speed_cost_modifier)
-                combined_cost[mask_speed_nan] = slope_cost[mask_speed_nan] # Restore slope cost where speed was NaN
-                # Ensure cost remains non-negative after adding modifier
-                combined_cost[combined_cost < 0] = 0
+                    logger.error("Shape mismatch between slope cost and speed cost modifier. Cannot combine.")
+                    return None
+                
+                # Add speed_cost_modifier to combined_cost.
+                # If slope_cost is NaN, result is NaN.
+                # If speed_cost_modifier is NaN, it's treated as 0 for the sum, so combined_cost effectively remains slope_cost.
+                speed_modifier_for_sum = np.nan_to_num(speed_cost_modifier, nan=0.0)
+                combined_cost = combined_cost + speed_modifier_for_sum
+                
+                # Apply normalization
+                combined_cost = self._normalize_array_0_1(combined_cost)
 
             # Apply road mask
-            # Ensure mask is aligned (should be guaranteed by rasterize_roads)
+            # Ensure mask is aligned (should be guaranteed by _rasterize_roads)
             if combined_cost.shape != road_mask.shape:
                  logger.error("Shape mismatch between combined cost and road mask. Cannot apply mask.")
                  return None
@@ -373,81 +416,6 @@ class CostLayer(FeatureBase):
             logger.error(f"Error combining costs: {e}", exc_info=True)
             return None
 
-    def _normalize_cost(self, cost_array: np.ndarray, profile: dict) -> Optional[np.ndarray]:
-        """
-        Normalizes the cost array to a 0-1 scale.
-
-        Costs equal to the 'impossible' high value are set to 1.
-        Other valid costs are scaled linearly between 0 and (1 - epsilon).
-        NaN values remain NaN.
-        """
-        logger.info("Normalizing cost raster to 0-1 range...")
-        try:
-            normalized_cost = cost_array.copy().astype(np.float32) # Work on copy, ensure float
-            nodata_mask = np.isnan(normalized_cost)
-
-            # Identify the high "impossible" cost value used
-            # Recalculate based on current array just in case
-            possible_costs = normalized_cost[~nodata_mask]
-            if possible_costs.size == 0:
-                 logger.warning("Cost array contains only NaN values. Cannot normalize.")
-                 return normalized_cost # Return the all-NaN array
-
-            # Find the maximum value that isn't NaN
-            max_cost = np.max(possible_costs)
-
-            # Heuristic: Assume the impossible cost is significantly larger than others
-            # Find the maximum cost *excluding* the potential impossible value
-            # This assumes impossible_cost_value is >> max_valid_cost
-            potential_valid_costs = possible_costs[possible_costs < max_cost * 0.9] # Exclude top 10% range heuristically
-            if potential_valid_costs.size > 0:
-                max_valid_cost = np.max(potential_valid_costs)
-                # Determine the impossible threshold more robustly
-                impossible_threshold = (max_valid_cost + 1) * self.IMPOSSIBLE_COST_FACTOR * 0.9 # Use 90% of the factor as threshold
-            else:
-                 # If all costs are very high or constant, treat max_cost as the only value
-                 max_valid_cost = max_cost
-                 impossible_threshold = max_cost + 1 # Set threshold above the max
-
-            impossible_mask = (~nodata_mask) & (normalized_cost >= impossible_threshold)
-            valid_value_mask = (~nodata_mask) & (~impossible_mask)
-
-            # Get min and max of the *valid* costs for scaling
-            valid_costs = normalized_cost[valid_value_mask]
-
-            if valid_costs.size > 0:
-                min_c = np.min(valid_costs)
-                max_c = np.max(valid_costs)
-                logger.info(f"Normalizing valid costs (min={min_c:.4f}, max={max_c:.4f})")
-
-                # Scale valid costs to range [0, 1)
-                if max_c > min_c:
-                    # Scale to [0, 1] first
-                    normalized_cost[valid_value_mask] = (normalized_cost[valid_value_mask] - min_c) / (max_c - min_c)
-                    # Slightly scale down to ensure impossible cost (1.0) is distinctly highest
-                    # This avoids valid max cost becoming exactly 1.0
-                    normalized_cost[valid_value_mask] *= 0.9999
-                else:
-                    # Handle case where all valid costs are the same
-                    normalized_cost[valid_value_mask] = 0.0 # Set all to min cost (0)
-            else:
-                 logger.warning("No valid costs found for normalization scaling (excluding impossible values).")
-                 # If only impossible costs exist, they will be set to 1 next.
-
-            # Set impossible cost areas explicitly to 1.0
-            normalized_cost[impossible_mask] = 1.0
-            logger.info(f"Set {np.sum(impossible_mask)} impossible cost pixels to 1.0")
-
-            # Ensure NaNs remain NaNs
-            normalized_cost[nodata_mask] = profile.get("nodata", np.nan) # Use profile nodata if available
-
-            logger.info("Cost normalization complete.")
-            return normalized_cost
-
-        except Exception as e:
-            logger.error(f"Error normalizing cost raster: {e}", exc_info=True)
-            return None
-
     def create_multi_layer_visualization(
             self, 
             cost_raster_path: Path, 
@@ -480,11 +448,11 @@ class CostLayer(FeatureBase):
             # Prepare layer configurations
             layers = []
             
-            # 1. Add the normalized cost raster layer
+            # 1. Add the cost raster layer
             cost_raster_4326 = self._postprocess_raster_crs(str(cost_raster_path))
             layers.append({
                 'path': cost_raster_4326,
-                'name': 'Normalized Cost (0=Low, 1=High/Impossible)',
+                'name': 'Calculated Cost (Lower is Better, High=Impossible)',
                 'type': 'raster',
                 'raster': {
                     'cmap': 'viridis_r',  # Reversed colormap (dark=high cost)
@@ -574,11 +542,10 @@ class CostLayer(FeatureBase):
         2. Calculate slope cost.
         3. Calculate speed cost modifier (optional).
         4. Combine costs and apply road mask.
-        5. Normalize the final cost raster.
-        6. Save the result.
+        5. Save the result (final normalization step removed).
         """
         logger.info("--- Starting Cost Raster Generation ---")
-        final_output_key = "normalized_cost_layer"
+        final_output_key = "calculated_cost_layer"
         final_output_path = self._get_output_path(final_output_key)
 
         # 1. Rasterize Roads
@@ -589,6 +556,7 @@ class CostLayer(FeatureBase):
 
         # 2. Calculate Slope Cost
         slope_cost_array = self._calculate_slope_cost()
+        logger.info(f"slope cost: {slope_cost_array}")
         if slope_cost_array is None:
             logger.error("Failed to calculate slope cost. Aborting.")
             return None
@@ -601,28 +569,29 @@ class CostLayer(FeatureBase):
         combined_cost_array = self._combine_costs(
             slope_cost_array, road_mask_array, speed_cost_modifier_array
         )
+
+        # 5. normalize cost 
+        combined_cost_array = self._normalize_array_0_1(combined_cost_array)
+
         if combined_cost_array is None:
             logger.error("Failed to combine cost components. Aborting.")
             return None
 
-        # 5. Normalize Cost
+        # 5. Save Final Raster (Normalization of the final combined_cost_array is removed)
+        # The combined_cost_array is now the final array to be saved.
         template_profile = self._get_template_profile()
-        # Update profile for final output (float32, potential nodata)
         final_profile = template_profile.copy()
         final_profile.update({
-            'dtype': np.float32,
-            'nodata': np.nan # Use NaN as nodata for normalized float output
+            'dtype': np.float32, # Ensure float32 for the output
+            'nodata': np.nan     # Use NaN as nodata
         })
-        normalized_cost_array = self._normalize_cost(combined_cost_array, final_profile)
-        if normalized_cost_array is None:
-            logger.error("Failed to normalize cost raster. Aborting.")
-            return None
-        normalized_cost_array = combined_cost_array
+        
+        # Ensure combined_cost_array is float32 before saving
+        final_cost_array = combined_cost_array.astype(np.float32)
 
-        # 6. Save Final Raster
         try:
-            self._save_raster(normalized_cost_array, final_profile, final_output_key)
-            logger.info(f"--- Successfully generated Normalized Cost Raster: {final_output_path} ---")
+            self._save_raster(final_cost_array, final_profile, final_output_key)
+            logger.info(f"--- Successfully generated Calculated Cost Raster: {final_output_path} ---")
             
             # Return paths to all relevant files so visualization can be done externally
             result = {
@@ -717,7 +686,7 @@ if __name__ == "__main__":
                     speed_raster_path=assumed_speed_raster,
                 )
 
-                logger.info("1. Testing CostDistance Build (Normalized Cost Raster)...")
+                logger.info("1. Testing Cost Build...")
                 # Build now returns a single delayed task or None
                 delayed_task = cost_feature.build()
 
@@ -734,7 +703,7 @@ if __name__ == "__main__":
                         cost_raster_path = computed_results.get("cost_raster_path")
                         
                         if cost_raster_path and Path(cost_raster_path).exists():
-                            logger.info(f"Generated Normalized Cost Raster: {cost_raster_path}")
+                            logger.info(f"Generated Cost Raster: {cost_raster_path}")
                             
                             # Generate the multi-layer visualization externally
                             try:
@@ -769,7 +738,7 @@ if __name__ == "__main__":
                     except Exception as e:
                         logger.warning(f"Error closing Dask client/cluster: {e}")
         else:
-            logger.error("Cannot run CostDistance test due to missing input files.")
+            logger.error("Cannot run Cost test due to missing input files.")
             # Close dask client even if test didn't run fully
             if client: 
                 client.close()
