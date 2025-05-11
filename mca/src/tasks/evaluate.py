@@ -377,7 +377,7 @@ if __name__ == "__main__":
     else:
         # --- Mock Inputs (Adjust filenames based on your config/actual outputs) ---
         mock_feature_outputs = {
-            "cost_raster": previous_run_dir / app_settings.output_files.normalized_cost_layer,
+            "cost_raster": previous_run_dir / app_settings.output_files.calculated_cost_layer,
             "slope_raster": previous_run_dir / app_settings.output_files.slope_raster,
             "dem_raster": previous_run_dir / app_settings.output_files.elevation_dem_raster,
             "speed_raster": previous_run_dir / app_settings.output_files.average_speed_raster,

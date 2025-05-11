@@ -205,7 +205,7 @@ class OutputFilesConfig(BaseModel):
     elevation_dem_raster: str = "elevation_dem.tif"
     slope_raster: str = "slope.tif"
     cost_function_raster: str = "cost_function.tif"
-    normalized_cost_layer: str = "normalized_cost.tif"  # Normalized cost distance
+    calculated_cost_layer: str = "cost.tif"  # cost layer
     rasterized_roads_mask: str = "rasterized_roads_mask.tif"  # Mask for roads
     aligned_speed_raster: str = "aligned_speed.tif"  # Aligned speed raster for overlay
     prepared_kml_bike_lanes_gpkg: str = "prepared_kml_bike_lanes.gpkg"
@@ -358,20 +358,27 @@ class ProcessingConfig(BaseModel):
     display_segments: bool = True  # Whether to display segments on the map
 
     # Overlay Settings
+    overlay_popularity_metric: str = Field(
+        default="efforts_per_age_norm",
+        description="Popularity metric to use for Overlay A and subsequent overlays."
+    )
     overlay_popularity_threshold: Optional[float] = Field(
-        default=0.5, # Example: Normalized popularity score (e.g., efforts_per_age > 0.5)
+        default=0.25, # Example: Normalized popularity score (e.g., efforts_per_age > 0.5)
         description="Popularity threshold (normalized) for Overlay A and subsequent overlays."
     )
     overlay_speed_threshold: Optional[float] = Field(
-        default=5.0, # Example: m/s (18 km/h)
+        # default=5.0, # Example: m/s (18 km/h)
+        default=0.3, # Normalized 
         description="Average speed threshold (m/s) for Overlay B."
     )
     overlay_traffic_threshold: Optional[float] = Field(
-        default=100, # Example: vehicles per hour/day (depending on traffic data aggregation)
+        # default=100,  # Example: vehicles per hour/day (depending on traffic data aggregation)
+        default=0.10,    # Normalized vehicles per hour/day (depending on traffic data aggregation)
         description="Traffic density threshold for Overlay C."
     )
     overlay_cost_threshold: Optional[float] = Field(
-        default=0.3, # Example: Normalized cost (lower is better)
+        # default=0.3, # Example: Normalized cost (lower is better)
+        default=10_000, # Example: Normalized cost (lower is better)
         description="Normalized cost distance threshold for Overlay D (e.g., keep segments with cost < threshold)."
     )
 
