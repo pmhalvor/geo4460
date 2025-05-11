@@ -18,6 +18,7 @@ class PathsConfig(BaseModel):
         / "output"
         / f"mca_{datetime.now().strftime('%Y%m%d_%H%M')}"
     )
+    
     # Specific input data paths (relative to data_dir or base_dir)
     strava_segments_geojson: FilePath = Field(
         # Use BASE_DIR directly in lambda to avoid potential recursion
@@ -26,35 +27,43 @@ class PathsConfig(BaseModel):
         / "segments"
         / "segments_oslo.geojson"
     )
-    traffic_bikes_csv: FilePath = Field(
-        # Use BASE_DIR directly in lambda
-        default_factory=lambda: BASE_DIR
-        / "data"
-        / "traffic"
-        / "all-oslo-bikes-day_20240101T0000_20250101T0000.csv"
-    )
-    traffic_stations_dir: DirectoryPath = Field(
-        # Use BASE_DIR directly in lambda
-        default_factory=lambda: BASE_DIR / "data" / "traffic",
-        description="Directory containing traffic station JSON files (e_road, f_road etc.)",
-    )
-    n50_gdb_path: DirectoryPath = Field(
-        default_factory=lambda: BASE_DIR
-        / "data"
-        / "Basisdata_03_Oslo_25833_N50Kartdata_FGDB.gdb",
-        description="Path to the N50 Geodatabase",
-    )
-    # Cache file for segment details fetched from API
     segment_details_cache_csv: Path = Field(
         default_factory=lambda: BASE_DIR
         / "data"
         / "segments"
         / "segment_details_cache.csv"
     )
+    
+    traffic_bikes_csv: FilePath = Field(
+        default_factory=lambda: BASE_DIR
+        / "data"
+        / "traffic"
+        / "all-oslo-bikes-day_20240101T0000_20250101T0000.csv"
+    )
+    traffic_stations_dir: DirectoryPath = Field(
+        default_factory=lambda: BASE_DIR / "data" / "traffic",
+        description="Directory containing traffic station JSON files (e_road, f_road etc.)",
+    )
+    
+    n50_gdb_path: DirectoryPath = Field(
+        default_factory=lambda: BASE_DIR
+        / "data"
+        / "Basisdata_03_Oslo_25833_N50Kartdata_FGDB.gdb",
+        description="Path to the N50 Geodatabase",
+    )
+    oslo_sykkelfelt_kml_path: FilePath = Field(
+        default_factory=lambda: BASE_DIR
+        / "data"
+        / "bike_lanes"
+        / "Sykkelruter i Oslo.kml"
+    )
+    
+    # Cache file for segment details fetched from API
     activity_details_dir: Path = Field(
         default_factory=lambda: BASE_DIR / "data" / "activity_details",
         description="Directory activity details stored at after collection",
     )
+
     # Input for the non-bike-laned roads to segment collection script
     diff_layer_gpkg: Path = Field(
         # Example path, user should verify or update this default if needed
@@ -161,6 +170,13 @@ class InputDataConfig(BaseModel):
     )
     traffic_timestamp_field: str = "timestamp"  # TODO update w/ correct field name
 
+    # Roads/Bike Lane Fields
+    oslo_bike_path_layers: List[str] = [
+        "Gang- og sykkelveier - vis hensyn (separate shared-use paths)",
+        "Sykkelfelt (Bicycle lane)",
+        "Sykkelvei med fortau (Separate bicycle path)",
+    ]
+
 
 class OutputFilesConfig(BaseModel):
     """Relative filenames for output files within the output directory."""
@@ -192,6 +208,8 @@ class OutputFilesConfig(BaseModel):
     normalized_cost_layer: str = "normalized_cost.tif"  # Normalized cost distance
     rasterized_roads_mask: str = "rasterized_roads_mask.tif"  # Mask for roads
     aligned_speed_raster: str = "aligned_speed.tif"  # Aligned speed raster for overlay
+    prepared_kml_bike_lanes_gpkg: str = "prepared_kml_bike_lanes.gpkg"
+
 
     # visualizations
     heatmap_visualization_html: str = "heatmap_visualization.html"  
@@ -290,7 +308,7 @@ class ProcessingConfig(BaseModel):
     )  # TODO remove if not used
     slope_units: str = "degrees"  # 'degrees' or 'percent'
     bike_lane_buffer: float = Field(
-        default=10.0, description="Buffer size for bike lanes (meters)"
+        default=20.0, description="Buffer size for bike lanes (meters)"
     )
 
     # Heatmap (Average Speed) IDW Settings

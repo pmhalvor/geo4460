@@ -1253,7 +1253,6 @@ def display_multi_layer_on_folium_map(
     all_bounds_4326 = [] # To store bounds of all layers in EPSG:4326
 
     # --- Create Base Map ---
-    # We'll set the location and zoom after processing layers if map_center is None
     m = folium.Map(
         location=[59.9139, 10.7522],  # Oslo (59.9139, 10.7522) as default
         zoom_start=map_zoom, 
@@ -1288,10 +1287,11 @@ def display_multi_layer_on_folium_map(
 
                 # Reproject to Folium's CRS (EPSG:4326)
                 if gdf.crs is None:
-                     logger.warning(f"Skipping layer '{layer_name}': GeoDataFrame has no CRS defined.")
-                     continue
+                    logger.warning(f"Skipping layer '{layer_name}': GeoDataFrame has no CRS defined.")
+                    continue
                 if gdf.crs.to_epsg() != 4326:
                     gdf_4326 = gdf.to_crs(epsg=4326)
+                    logger.warning(f"Had to reproject layer from {gdf.crs} to EPSG:4326.")
                 else:
                     gdf_4326 = gdf.copy()
 
@@ -1307,6 +1307,9 @@ def display_multi_layer_on_folium_map(
                 if gdf_4326.empty:
                     logger.warning(f"Skipping layer '{layer_name}': GeoDataFrame empty after cleaning.")
                     continue
+                else:
+                    logger.info(f"Layer has {len(gdf_4326)} valid geometries after cleaning.")
+                    logger.info(f"Columns: {gdf_4326.columns.tolist()}")
 
                 # Store bounds for map extent calculation
                 layer_bounds = gdf_4326.total_bounds
@@ -1361,6 +1364,10 @@ def display_multi_layer_on_folium_map(
 
                 # Handle field name truncation in shapefiles - check actual available columns
                 # ESRI Shapefile format truncates column names to 10 characters
+                
+                geometry_col_name = gdf_display.geometry.name # Get the geometry column name
+                logger.debug(f"Identified geometry column as: '{geometry_col_name}' for layer '{layer_name}'")
+
                 actual_tooltip_cols = []
                 actual_popup_cols = []
                 
@@ -1369,6 +1376,9 @@ def display_multi_layer_on_folium_map(
                     available_cols = set(gdf_display.columns)
                     # Try to match truncated names
                     for col in tooltip_cols:
+                        if col == geometry_col_name:
+                            logger.debug(f"Skipping geometry column '{col}' for tooltip fields in layer '{layer_name}'.")
+                            continue
                         if col in available_cols:
                             actual_tooltip_cols.append(col)
                         elif len(col) > 10:
@@ -1386,6 +1396,9 @@ def display_multi_layer_on_folium_map(
                 if popup_cols:
                     available_cols = set(gdf_display.columns)
                     for col in popup_cols:
+                        if col == geometry_col_name:
+                            logger.debug(f"Skipping geometry column '{col}' for popup fields in layer '{layer_name}'.")
+                            continue
                         if col in available_cols:
                             actual_popup_cols.append(col)
                         elif len(col) > 10:
@@ -1410,6 +1423,7 @@ def display_multi_layer_on_folium_map(
                 else:
                     popup = None
 
+                logger.info(f"Columns right before foliumn.GeoJson: {gdf_display.columns.tolist()}")
                 folium.GeoJson(
                     gdf_display,
                     style_function=vector_style_func,
@@ -1421,19 +1435,19 @@ def display_multi_layer_on_folium_map(
 
                 # Add colormap legend if styled numerically
                 if style_col and style_cmap and style_vmin is not None:
-                     try:
-                         from branca.colormap import LinearColormap
-                         colors_list = [colors.rgb2hex(style_cmap(style_norm(i))) for i in np.linspace(style_vmin, style_vmax, num=10)]
-                         colormap = LinearColormap(
-                             colors=colors_list,
-                             vmin=style_vmin,
-                             vmax=style_vmax,
-                             caption=f"{layer_name}: {style_col}"
-                         )
-                         # Add legend outside the feature group so it's always visible
-                         m.add_child(colormap)
-                     except Exception as legend_e:
-                         logger.warning(f"Could not create legend for layer '{layer_name}': {legend_e}")
+                    try:
+                        from branca.colormap import LinearColormap
+                        colors_list = [colors.rgb2hex(style_cmap(style_norm(i))) for i in np.linspace(style_vmin, style_vmax, num=10)]
+                        colormap = LinearColormap(
+                            colors=colors_list,
+                            vmin=style_vmin,
+                            vmax=style_vmax,
+                            caption=f"{layer_name}: {style_col}"
+                        )
+                        # Add legend outside the feature group so it's always visible
+                        m.add_child(colormap)
+                    except Exception as legend_e:
+                        logger.warning(f"Could not create legend for layer '{layer_name}': {legend_e}")
 
 
             # --- Handle Raster Layers ---
