@@ -27,6 +27,37 @@ from src.utils import (
 )
 
 
+def normalize_raster(raster_path):
+    """
+    Normalizes the values of a raster to the range between 0 and 1.
+
+    Args:
+        raster_path (str): The path to the raster file.
+    """
+    try:
+        with rasterio.open(raster_path, 'r+') as src:
+            profile = src.profile
+            data = src.read(1)
+
+            # Normalize the data to the range between 0 and 1
+            min_val = np.nanmin(data)
+            max_val = np.nanmax(data)
+
+            if min_val == max_val:
+                logger.warning("Raster has a constant value. Skipping normalization.")
+                return
+
+            normalized_data = (data - min_val) / (max_val - min_val)
+
+            # Write the normalized data back to the raster
+            src.write(normalized_data, 1)
+
+        logger.info(f"Raster normalized to the range between 0 and 1: {raster_path}")
+
+    except Exception as e:
+        logger.error(f"Error normalizing raster: {e}", exc_info=True)
+
+
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
@@ -49,6 +80,7 @@ class Heatmap(FeatureBase):
         activity_dir = self.settings.paths.activity_details_dir
         if not activity_dir.is_dir():
             logger.error(f"Activity details directory not found: {activity_dir}")
+            logger.info(f"Run src/collect/activity_details.py to download activity details.")
             self.gdf = None
             return
 
@@ -757,8 +789,11 @@ class Heatmap(FeatureBase):
         except Exception as e:
             logger.error(f"Error during WBT IDW interpolation call: {e}", exc_info=True)
 
-        # --- Verification & RMSE Calculation (only if IDW ran) ---
         if idw_success:
+            # Normalize the raster to the range between 0 and 1
+            normalize_raster(str(output_raster_path))
+
+            # --- Verification & RMSE Calculation (only if IDW ran) ---
             train_rmse, test_rmse = self._verify_and_calculate_rmse(
                 output_raster_path, self.train_gdf, self.test_gdf, speed_field_shp
             )

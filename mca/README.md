@@ -21,25 +21,9 @@ The research questions we'll aim to solve area:
 
 
 ## How to run
-Navigate to `lab/GIS5` and run the following commands:
+Navigate to `mca` 
 ```bash
-make install
-make run
-```
-
-It would be best to run the pipeline in a virtual environment.
-
-Using `conda`:
-```bash
-conda create -n mca python=3.11
-conda activate mca
-make install
-make run
-```
-
-Or `uv`:
-```bash
-uv sync
+uv sync --no-cache-dir
 uv run python -m src.workflow
 ```
 

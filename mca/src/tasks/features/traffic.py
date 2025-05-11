@@ -18,12 +18,44 @@ from src.tasks.features.feature_base import FeatureBase
 from src.utils import (
     save_vector_data,
     load_vector_data,
-    display_raster_on_folium_map, # For main block testing
+    display_raster_on_folium_map,  # For main block testing
 )
+
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
+
+
+def normalize_raster(raster_path):
+    """
+    Normalizes the values of a raster to the range between 0 and 1.
+
+    Args:
+        raster_path (str): The path to the raster file.
+    """
+    try:
+        with rasterio.open(raster_path, 'r+') as src:
+            profile = src.profile
+            data = src.read(1)
+
+            # Normalize the data to the range between 0 and 1
+            min_val = np.nanmin(data)
+            max_val = np.nanmax(data)
+
+            if min_val == max_val:
+                logger.warning("Raster has a constant value. Skipping normalization.")
+                return
+
+            normalized_data = (data - min_val) / (max_val - min_val)
+
+            # Write the normalized data back to the raster
+            src.write(normalized_data, 1)
+
+        logger.info(f"Raster normalized to the range between 0 and 1: {raster_path}")
+
+    except Exception as e:
+        logger.error(f"Error normalizing raster: {e}", exc_info=True)
 logger = logging.getLogger(__name__)
 
 
@@ -589,11 +621,15 @@ class Traffic(FeatureBase):
         try:
             # --- Run WBT IDW Interpolation ---
             idw_success = self._run_idw_interpolation(
-                input_shp_path, 
-                value_field_shp, 
+                input_shp_path,
+                value_field_shp,
                 raw_output_path
             )
-            
+
+            if idw_success:
+                # Normalize the raster to the range between 0 and 1
+                normalize_raster(raw_output_path)
+
             # Clean up temporary directory
             if temp_dir_obj:
                 temp_dir_obj.cleanup()

@@ -3,6 +3,7 @@ import webbrowser
 import time
 import json
 import os
+import sys
 import requests
 import datetime
 
@@ -48,7 +49,9 @@ def authorize():
     token_dir = os.path.dirname(os.path.abspath(TOKEN_PATH))
     os.makedirs(token_dir, exist_ok=True)
 
-    flask_process = subprocess.Popen(["python", flask_app_path])
+    print(f"Running {flask_app_path}  with {sys.executable}...")
+    flask_process = subprocess.Popen([sys.executable, flask_app_path])
+
     time.sleep(1)  # waits for server to be fully loaded
 
     auth_url = get_authorization_url()
