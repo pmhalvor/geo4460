@@ -377,13 +377,13 @@ if __name__ == "__main__":
     else:
         # --- Mock Inputs (Adjust filenames based on your config/actual outputs) ---
         mock_feature_outputs = {
-            "cost_raster": previous_run_dir / app_settings.output_files.normalized_cost_layer,
+            "cost_raster": previous_run_dir / app_settings.output_files.calculated_cost_layer,
             "slope_raster": previous_run_dir / app_settings.output_files.slope_raster,
             "dem_raster": previous_run_dir / app_settings.output_files.elevation_dem_raster,
             "speed_raster": previous_run_dir / app_settings.output_files.average_speed_raster,
             "road_vectors": { # Dictionary for road outputs
                  "samferdsel_all": previous_run_dir / app_settings.output_files.prepared_roads_gpkg,
-                 "bike_lanes_filtered": previous_run_dir / app_settings.output_files.prepared_bike_lanes_filtered_gpkg,
+                 "bike_lanes_filtered": previous_run_dir / app_settings.output_files.prepared_kml_bike_lanes_gpkg,
                  "roads_simple_filtered": previous_run_dir / app_settings.output_files.prepared_roads_simple_filtered_gpkg,
                  "roads_simple_diff_lanes": previous_run_dir / app_settings.output_files.prepared_roads_simple_diff_lanes_gpkg,
             },

@@ -759,7 +759,7 @@ def display_overlay_folium_map(
                     continue
 
                 # drop potentially erroneous columns
-                gdf_4326 = gdf_4326.drop(columns=["created_at", "points"])
+                gdf_4326 = gdf_4326.drop(columns=["created_at", "points"], errors="ignore")
 
                 # Prepare tooltip/popup (use only columns present in this specific GDF)
                 available_tooltip_cols = [col for col in (tooltip_columns or []) if col in gdf_4326.columns]

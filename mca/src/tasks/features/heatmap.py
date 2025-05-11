@@ -26,6 +26,8 @@ from src.utils import (
     display_multi_layer_on_folium_map,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def normalize_raster(raster_path):
     """
@@ -57,11 +59,6 @@ def normalize_raster(raster_path):
     except Exception as e:
         logger.error(f"Error normalizing raster: {e}", exc_info=True)
 
-
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
 
 
 class Heatmap(FeatureBase):
@@ -498,16 +495,16 @@ class Heatmap(FeatureBase):
                         resampling=Resampling.bilinear
                     )
 
-        # Step 3: Sanity check - ensure correct reprojection using gdalinfo
-        try:
-            subprocess.run(["gdalinfo", str(output_path)], check=True)
-            with rasterio.open(output_path) as dst:
-                if dst.crs.to_epsg() != dst_epsg:
-                    logger.warning(f"Reprojection issue: Output CRS is {dst.crs}, expected EPSG:{dst_epsg}")
-                else:
-                    logger.info(f"Successfully reprojected raster to EPSG:{dst_epsg}")
-        except Exception as e:
-            logger.error(f"Error verifying reprojected raster: {e}")
+        # # Step 3: Sanity check - ensure correct reprojection using gdalinfo
+        # try:  # TODO skip for now, due to no easy way to install gdal on windows
+        #     subprocess.run(["gdalinfo", str(output_path)], check=True)
+        #     with rasterio.open(output_path) as dst:
+        #         if dst.crs.to_epsg() != dst_epsg:
+        #             logger.warning(f"Reprojection issue: Output CRS is {dst.crs}, expected EPSG:{dst_epsg}")
+        #         else:
+        #             logger.info(f"Successfully reprojected raster to EPSG:{dst_epsg}")
+        # except Exception as e:
+        #     logger.error(f"Error verifying reprojected raster: {e}")
 
 
         logger.info(f"Reprojected raster saved to: {output_path}")
@@ -784,6 +781,7 @@ class Heatmap(FeatureBase):
                 f"WBT IDW interpolation completed successfully. Output: {output_raster_path}"
             )
 
+            # TODO debug the double _4326 suffix here
             output_raster_path = self._postprocess_wbt_output(str(output_raster_path), 25833, 4326)
 
         except Exception as e:
@@ -839,6 +837,10 @@ if __name__ == "__main__":
     from whitebox import WhiteboxTools
     from src.utils import display_raster_on_folium_map # Import the new function
 
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
     logger.info("--- Running heatmap.py Standalone Test ---")
 
     if settings:

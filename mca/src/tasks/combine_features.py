@@ -1,3 +1,24 @@
+"""
+Combine Features Steps:
+
+3. Combine features:
+    1. Overlay A: Popular segments w/o biking lanes
+        1. (Iterative preprocessing step) Roads - bike_lanes -> find segments around these spots
+        2. All segment lines layer - bike_lanes (keep all segments with part outside of bike lanes)
+    2. Overlay B: Popular segments w/o biking lanes w/ high avg speeds
+        1. Overlay A + average speed raster
+    3. Overlay C: Popular segments w/o biking lanes w/ high avg speeds + high traffic
+        1. Overlay B + traffic buffer raster
+    4. Overlay D: Popular segments w/o biking lanes w/ high avg speeds + high traffic + high cost
+        1. Overlay C + cost function raster
+
+(Cost now handled in build_features_task)
+
+Final map:
+    Output from Overlay D
+"""
+
+
 import logging
 from pathlib import Path
 import geopandas as gpd
@@ -21,36 +42,11 @@ from src.utils import (
 logger = logging.getLogger(__name__)
 
 
-# --- Docstring from original file (for reference) ---
-"""
-Combine Features Steps:
-
-3. Combine features:
-    1. Overlay A: Popular segments w/o biking lanes
-        1. (Iterative preprocessing step) Roads - bike_lanes -> find segments around these spots
-        2. All segment lines layer - bike_lanes (keep all segments with part outside of bike lanes)
-    2. Overlay B: Popular segments w/o biking lanes w/ high avg speeds
-        1. Overlay A + average speed raster
-    3. Overlay C: Popular segments w/o biking lanes w/ high avg speeds + high traffic
-        1. Overlay B + traffic buffer raster
-    4. Overlay D: Popular segments w/o biking lanes w/ high avg speeds + high traffic + high cost
-        1. Overlay C + cost function raster
-
-(Cost now handled in build_features_task)
-
-Final map:
-    Output from Overlay D
-"""
-
-
-# Helper function (consider moving to utils if generally useful)
+# TODO move to utils
 def _get_full_output_path(settings: AppConfig, key: str) -> Path:
     """Helper to get a full output path from settings."""
     filename = getattr(settings.output_files, key)
     return settings.paths.output_dir / filename
-
-
-# --- Overlay Functions ---
 
 
 def build_overlay_a(
@@ -120,8 +116,7 @@ def build_overlay_a(
             )
 
         # Filter based on popularity threshold from config
-        # TODO: Verify the actual normalized popularity column name exists in segments_gdf
-        popularity_col = "popularity_norm" # Placeholder name
+        popularity_col = settings.processing.overlay_popularity_metric
         popularity_threshold = settings.processing.overlay_popularity_threshold
         if popularity_threshold is not None and popularity_col in overlay_a_gdf.columns:
             initial_count_pop = len(overlay_a_gdf)
@@ -135,8 +130,9 @@ def build_overlay_a(
                 f"Retained {filtered_count_pop}/{initial_count_pop} segments (including NaN popularity)."
             )
         elif popularity_threshold is not None:
-            logger.warning(f"Popularity threshold ({popularity_threshold}) defined, but column '{popularity_col}' not found for filtering.")
 
+            logger.warning(f"Popularity threshold ({popularity_threshold}) defined, but column '{popularity_col}' not found for filtering.")
+            logger.warning(f"{overlay_a_gdf.columns}")
 
         if overlay_a_gdf.empty:
             logger.warning("Overlay A resulted in an empty GeoDataFrame after spatial join and popularity filtering.")
@@ -207,6 +203,8 @@ def build_overlay_b(
     overlay_b_gdf = _sample_raster_along_lines(
         overlay_a_gdf, average_speed_raster_path, stat_col_name, stat="mean"
     )
+
+    logging.info(f"Overlay B GDF after sampling: {overlay_b_gdf.describe()}")
 
     # Filter based on speed threshold from config
     speed_threshold = settings.processing.overlay_speed_threshold
@@ -287,6 +285,9 @@ def build_overlay_c(
     overlay_c_gdf = _sample_raster_along_lines(
         overlay_b_gdf, traffic_density_raster_path, stat_col_name, stat="mean"
     )
+    # replace <0 with -0.1 to avoid very low values  # TODO rm manual fix
+    overlay_c_gdf[stat_col_name] = overlay_c_gdf[stat_col_name].clip(lower=0)
+    logging.info(f"Overlay C GDF after sampling: {overlay_c_gdf.describe()}")
 
     # Filter based on traffic threshold from config
     # Note: Traffic density interpretation depends on how the raster was created (e.g., vehicles/hour, total count)
@@ -372,12 +373,8 @@ def build_overlay_d(
 
     # --- Debug: Log avg_cost stats before filtering ---
     if stat_col_name in overlay_d_gdf.columns and not overlay_d_gdf[stat_col_name].isnull().all():
-        logger.info(f"Debug: Stats for '{stat_col_name}' before filtering:")
-        logger.info(f"  Min: {overlay_d_gdf[stat_col_name].min():.4f}")
-        logger.info(f"  Max: {overlay_d_gdf[stat_col_name].max():.4f}")
-        logger.info(f"  Mean: {overlay_d_gdf[stat_col_name].mean():.4f}")
-        logger.info(f"  Median: {overlay_d_gdf[stat_col_name].median():.4f}")
-        logger.info(f"  NaN count: {overlay_d_gdf[stat_col_name].isnull().sum()}")
+        logger.info(f"Debug: Stats before filtering:")
+        logger.info(f"\n{overlay_d_gdf.describe()}")
     elif stat_col_name in overlay_d_gdf.columns:
          logger.warning(f"Debug: Column '{stat_col_name}' found but contains only NaN values.")
     else:
@@ -570,18 +567,18 @@ def _sample_raster_along_lines(
         logger.info(f"Raster crs: {raster_crs}")
 
         if gdf.crs != raster_crs:
-            logger.warning(f"CRS mismatch: gdf ({gdf.crs}) vs raster ({raster_crs}). Skipping.")
-            return gdf # Return original GDF if CRS mismatch
-        #     logger.warning(f"Reprojecting vector data from {gdf.crs} to {raster_crs} for sampling.")
-        #     try:
-        #         # Use utils function for robust reprojection
-        #         gdf_proj = reproject_gdf(gdf, raster_crs)
-        #     except Exception as reproj_e:
-        #         logger.error(f"Reprojection failed during sampling: {reproj_e}", exc_info=True)
-        #         # Add NaN column and return original GDF structure but with original CRS
-        #         gdf_out = gdf.copy()
-        #         gdf_out[stat_col_name] = np.nan
-        #         return gdf_out
+            # logger.warning(f"CRS mismatch: gdf ({gdf.crs}) vs raster ({raster_crs}). Skipping.")
+            # return gdf # Return original GDF if CRS mismatch
+            logger.warning(f"Reprojecting vector data from {gdf.crs} to {raster_crs} for sampling.")
+            try:
+                # Use utils function for robust reprojection
+                gdf_proj = reproject_gdf(gdf, raster_crs)
+            except Exception as reproj_e:
+                logger.error(f"Reprojection failed during sampling: {reproj_e}", exc_info=True)
+                # Add NaN column and return original GDF structure but with original CRS
+                gdf_out = gdf.copy()
+                gdf_out[stat_col_name] = np.nan
+                return gdf_out
 
         # Prepare list to store coordinates for sampling
         all_coords = []
@@ -677,12 +674,12 @@ if __name__ == "__main__":
     # Use settings loaded from config.py
     settings = app_settings
     # Define the specific output directory from the previous run to use as input
-    previous_run_name = "mca_20250426_2122_workflow"
+    previous_run_name = "mca_20250511_1753"
     previous_run_output_dir = settings.paths.base_dir / "output" / previous_run_name
     logger.info(f"Using input features from: {previous_run_output_dir}")
 
     # Define the output directory for this test run's overlays and maps
-    test_output_dir = settings.paths.base_dir / "output" / "mca_combine_features_test_2"
+    test_output_dir = settings.paths.base_dir / "output" / "mca_combine_features"
     test_output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Saving test outputs (overlays, maps) to: {test_output_dir}")
     # Override the default output dir in settings for this run
@@ -697,13 +694,14 @@ if __name__ == "__main__":
     # --- Mock feature_results dictionary ---
     # Construct paths based on the previous run directory and expected filenames from config
     feature_results_mock = {
-        "prepared_segments": previous_run_output_dir / settings.output_files.prepared_segments_gpkg,
+        "prepared_segments": previous_run_output_dir / "segment_popularity_vector_efforts_per_age.gpkg",
         "road_vectors": {
             "roads_simple_diff_lanes": previous_run_output_dir / settings.output_files.prepared_roads_simple_diff_lanes_gpkg,
         },
-        "speed_raster": previous_run_output_dir / settings.output_files.average_speed_raster,
+        # "speed_raster": previous_run_output_dir / settings.output_files.average_speed_raster,
+        "speed_raster": Path("C:/Users/per.halvorsen/personal/uio/geo4460/mca/output/mca_20250511_2059/average_speed_4326.tif"),
         "traffic_raster": previous_run_output_dir / settings.output_files.traffic_density_raster_daytime,
-        "cost_raster": previous_run_output_dir / settings.output_files.normalized_cost_layer,
+        "cost_raster": previous_run_output_dir / settings.output_files.calculated_cost_layer,
     }
 
     # Verify that input files exist
@@ -793,7 +791,7 @@ if __name__ == "__main__":
     # Define columns for tooltips
     tooltip_cols_combined = [
         settings.input_data.segment_id_field,
-        'popularity_norm', # Added in Overlay A filter logic (verify name)
+        settings.processing.overlay_popularity_metric,
         'avg_speed',
         'avg_traffic',
         'avg_cost'
@@ -810,7 +808,6 @@ if __name__ == "__main__":
             overlay_gdfs=overlay_gdfs_loaded,
             input_rasters=input_rasters_to_display,
             output_html_path_str=str(combined_map_output_path),
-            target_crs_epsg=settings.processing.output_crs_epsg,
             tooltip_columns=tooltip_cols_combined,
             zoom_start=11 # Adjust zoom if needed
         )

@@ -14,7 +14,6 @@ from src.collect.segments import (
 )
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- Helper Functions (Adapted from collect_segments_from_diff.py and previous version) ---
@@ -349,4 +348,5 @@ def main():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     main()

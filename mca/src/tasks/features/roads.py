@@ -19,6 +19,7 @@ class BikeLanes(FeatureBase):
     def __init__(self, settings: BaseModel, wbt: object = None):
         super().__init__(settings, wbt)
         self.gdf_kml_bike_lanes = None 
+        self.load_data() # Load data immediately so layer available for roads processing
 
     def load_data(self) -> None:
         """Loads bike lane data from KML, filters, and prepares it."""
@@ -260,14 +261,16 @@ class Roads(FeatureBase):
             logger.error("Failed to load base Samferdsel layer. Aborting Roads processing.")
             return # Cannot proceed without base data
 
-        # # 2. Filter Bike Lanes (only if none provided from KML data)
+        # 2. Filter Bike Lanes (only if none provided from KML data)
         if self.gdf_bike_lanes is None:
             logger.info("No KML bike lanes found. Using N50 bike lanes (inconclusive data).")
             self.gdf_bike_lanes = self._filter_by_typeveg(
                 self.gdf_samferdsel,
                 self.settings.input_data.n50_typeveg_bike_lane,
-                "prepared_bike_lanes_filtered_gpkg",
+                "prepared_bike_lanes_gpkg",
             )
+        else:
+            self._save_intermediate_gdf(self.gdf_bike_lanes, "prepared_bike_lanes_gpkg")
 
         # 3. Filter Simple Roads
         self.gdf_roads_simple = self._filter_by_typeveg(
@@ -314,7 +317,7 @@ class Roads(FeatureBase):
         # Return paths to the generated files
         output_paths = {
             "samferdsel_all": self._get_output_path("prepared_roads_gpkg"),
-            "bike_lanes_filtered": self._get_output_path("prepared_bike_lanes_filtered_gpkg"),
+            "bike_lanes_filtered": self._get_output_path("prepared_bike_lanes_gpkg"),
             "roads_simple_filtered": self._get_output_path("prepared_roads_simple_filtered_gpkg"),
             "roads_simple_diff_lanes": self._get_output_path("prepared_roads_simple_diff_lanes_gpkg"),
             "roads_all_diff_lanes": self._get_output_path("prepared_roads_all_diff_lanes_gpkg"),

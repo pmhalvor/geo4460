@@ -12,10 +12,6 @@ from src.strava.locations import locations
 from src.traffic.stations import get_oslo_stations
 from src.config import settings # Import settings for configuration
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-
 def calculate_km_to_degree_at_latitude(km, latitude):
     """Convert kilometers to degrees at a given latitude"""
     # 1 degree of latitude is approximately 111.32 km
@@ -219,6 +215,8 @@ def segments_to_gdf(segments_list):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
     oslo_stations = get_oslo_stations()
 
     for place in locations.keys():

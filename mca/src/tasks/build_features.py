@@ -10,7 +10,7 @@ from src.config import AppConfig, settings as app_settings
 from src.tasks.features.segments import Segments
 from src.tasks.features.heatmap import Heatmap
 from src.tasks.features.traffic import Traffic
-from src.tasks.features.roads import Roads
+from src.tasks.features.roads import Roads, BikeLanes # Added BikeLanes
 from src.tasks.features.elevation import Elevation
 from src.tasks.features.cost import CostLayer
 
@@ -33,46 +33,61 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     """
     logger.info("--- Start Feature Building Task ---")
 
-    # Initialize Feature Objects
+    # --- Initialize BikeLanes First ---
+    logger.info("Initializing KML Bike Lanes processor...")
+    bike_lanes = BikeLanes(settings, wbt) # Assuming wbt might be used by FeatureBase
+    try:
+        bike_lanes.load_data() # Ensure gdf_kml_bike_lanes is populated
+        if bike_lanes.gdf_kml_bike_lanes is not None:
+            logger.info(f"KML Bike Lanes data loaded. Found {len(bike_lanes.gdf_kml_bike_lanes)} features.")
+        else:
+            logger.info("KML Bike Lanes data loaded, but GeoDataFrame is None (e.g. file not found or empty).")
+    except Exception as e:
+        logger.error(f"Error during BikeLanes data loading: {e}", exc_info=True)
+        # bike_lanes.gdf_kml_bike_lanes might be None or empty, Roads will use fallback
+
+    # --- Initialize Other Feature Objects ---
+    logger.info("Initializing other feature processors...")
     segments = Segments(settings, wbt)
     heatmap = Heatmap(settings, wbt)
     traffic = Traffic(settings, wbt)
-    roads = Roads(settings, wbt)
+    # Pass the (potentially loaded) GDF from bike_lanes to Roads
+    roads = Roads(settings, wbt, gdf_bike_lanes=bike_lanes.gdf_kml_bike_lanes)
     elevation = Elevation(settings, wbt)
     # CostDistance requires outputs from others, initialized later
 
-    # Load data for all features first (can happen in parallel if desired, but sequential is simpler)
-    logger.info("Loading data for all features...")
+    # --- Load data for all features ---
+    logger.info("Loading data for features...")
     try:
         segments.load_data()
         heatmap.load_data()  # Will log warnings as it's not implemented
         traffic.load_data()
-        roads.load_data()
+        roads.load_data()  # bike lanes already loaded during init
         elevation.load_data()
     except Exception as e:
-        logger.error(f"Fatal error during data loading phase: {e}", exc_info=True)
+        logger.error(f"Fatal error during data loading phase for other features: {e}", exc_info=True)
         # Depending on requirements, might want to exit or continue with available data
         # For now, let's log the error and attempt to build with whatever loaded
         # sys.exit(1) # Or exit if loading is critical
 
     logger.info("Data loading phase complete.")
 
-    # Build features using Dask where applicable (build methods handle dask.delayed)
-    logger.info("Collecting Dask build tasks for independent features...")
-    # Collect delayed tasks from independent features
-    # elevation.build() returns a single delayed object representing a tuple
+    # --- Build features using Dask ---
+    logger.info("Collecting Dask build tasks...")
+    bike_lanes_task = bike_lanes.build()
     segments_task = segments.build()
     heatmap_task = heatmap.build()
     traffic_task = traffic.build()
-    roads_task = roads.build()
+    roads_task = roads.build() 
     elevation_task = elevation.build() # This task computes (dem_path, slope_path)
 
     delayed_tasks = [
+        bike_lanes_task, # NOTE not properly paralleized, but good enough for now
         segments_task,
         heatmap_task,
         traffic_task,
         roads_task,
-        elevation_task, # Add the single elevation task object
+        elevation_task,
     ]
 
     logger.info(f"Collected {len(delayed_tasks)} Dask tasks. Computing...")
@@ -81,13 +96,14 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     computed_results = dask.compute(*delayed_tasks, scheduler="distributed")
     logger.info("Independent feature computation complete.")
 
-    # Extract results (order matches delayed_tasks)
-    segment_raster_paths = computed_results[0] # List of paths
-    speed_raster_path = computed_results[1]    # Path or None
-    traffic_raster_path = computed_results[2]  # Path or None
-    road_vector_paths = computed_results[3]    # Dict of paths
+    # --- Extract results (order matches delayed_tasks) ---
+    kml_bike_lanes_output = computed_results[0]  # Dict: {"kml_bike_lanes": path}
+    segment_raster_paths = computed_results[1]   # List of paths
+    speed_raster_path = computed_results[2]      # Path or None
+    traffic_raster_path = computed_results[3]    # Path or None
+    road_vector_paths = computed_results[4]      # Dict of paths from Roads.build()
     # Elevation result is a tuple (dem_path, slope_path) or (None, None)
-    elevation_results = computed_results[4]
+    elevation_results = computed_results[5]
     dem_path, slope_path = elevation_results if elevation_results else (None, None)
 
     # --- Build Dependent Features ---
@@ -96,15 +112,23 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     cost_raster_path = None # Initialize path to None
     cost_raster_delayed = None # Initialize delayed task to None
 
-    roads_vector_input_path = road_vector_paths.get("samferdsel_all") 
+    # roads_vector_input_path = road_vector_paths.get("samferdsel_all") 
+    roads_vector_input_path = road_vector_paths.get("roads_simple_filtered") # only use roads in cost calc
 
+    # TODO move to cost..
     if slope_path and roads_vector_input_path:
-        logger.info(f"Inputs found: Slope='{slope_path}', Roads Vector='{roads_vector_input_path}'")
+        # TODO remove manual debug hack
+        slope_path = slope_path.replace("_4326", "")
+        speed_raster_path = speed_raster_path.replace("_4326", "")
+
         try:
             # Convert paths to Path objects only if they are not None
             slope_raster_path_obj = Path(slope_path)
             roads_vector_path_obj = Path(roads_vector_input_path)
             speed_raster_path_obj = Path(speed_raster_path) if speed_raster_path else None
+
+            logger.info(f"Inputs found: Slope='{slope_path}', Roads Vector='{roads_vector_input_path}'")
+            logger.info(f"Average speed='{speed_raster_path if speed_raster_path else '.'}'")
 
             # Initialize CostLayer with VECTOR roads path
             cost_layer = CostLayer(
@@ -135,7 +159,7 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
                         
                         # Create multi-layer visualization after computation finishes
                         try:
-                            logger.info("Creating multi-layer visualization...")
+                            logger.info("Creating multi-layer cost visualization...")
                             slope_path = computed_results.get("slope_raster_path")
                             speed_path = computed_results.get("aligned_speed_path", computed_results.get("speed_raster_path"))
                             
@@ -184,28 +208,34 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     logger.info("Consolidating all results...")
     results = {
         # Feature objects
+        "bike_lanes": bike_lanes,                
         "segments": segments,
         "heatmap": heatmap,
         "traffic": traffic,
         "roads": roads,
         "elevation": elevation,
         "cost_distance": cost_layer, # Might be None if build failed/skipped
-        # Direct outputs from computation
+        # Direct outputs from Dask computation
+        "kml_bike_lanes_files": kml_bike_lanes_output, # Dict e.g. {"kml_bike_lanes": path}
         "segment_rasters": segment_raster_paths, # List of paths
         "speed_raster": speed_raster_path,       # Path or None
         "traffic_raster": traffic_raster_path,     # Path or None
-        "road_vectors": road_vector_paths,       # Dict of paths
+        "road_files": road_vector_paths,       # Dict of paths from Roads.build()
         "dem_raster": dem_path,                  # Path or None
         "slope_raster": slope_path,                # Path or None
         "cost_raster": cost_raster_path,         # Path or None
-        # Paths to prepared vector data (from feature object properties)
-        "prepared_segments": segments.output_paths.get("prepared_segments_gpkg"),
-        "prepared_activities": heatmap.output_paths.get("prepared_activities_gpkg"),
-        "prepared_traffic": traffic.output_paths.get("prepared_traffic_points_gpkg"),
-        "prepared_roads": roads.output_paths.get("prepared_roads_gpkg"),
-        "prepared_lanes": roads.output_paths.get("prepared_bike_lanes_gpkg"),
-        "prepared_roads_no_lanes": roads.output_paths.get("prepared_roads_no_lanes_gpkg"),
-        "prepared_contours": elevation.output_paths.get("prepared_contours_gpkg"),
+        # Specific paths for convenience (some from object properties, some from computed dicts)
+        "prepared_kml_bike_lanes": kml_bike_lanes_output.get("kml_bike_lanes") if kml_bike_lanes_output else None,
+        "prepared_segments": segments.output_paths.get("prepared_segments_gpkg"), # From Segments.load_data
+        "prepared_activities": heatmap.output_paths.get("prepared_activities_gpkg"), # From Heatmap.load_data
+        "prepared_traffic": traffic.output_paths.get("prepared_traffic_points_gpkg"), # From Traffic.load_data
+        "prepared_contours": elevation.output_paths.get("prepared_contours_gpkg"), # From Elevation.load_data
+        # Paths from road_files (results of Roads.build())
+        "prepared_samferdsel_all": road_vector_paths.get("samferdsel_all") if road_vector_paths else None,
+        "prepared_n50_bike_lanes_filtered": road_vector_paths.get("bike_lanes_filtered") if road_vector_paths else None,
+        "prepared_roads_simple_filtered": road_vector_paths.get("roads_simple_filtered") if road_vector_paths else None,
+        "prepared_roads_simple_diff_lanes": road_vector_paths.get("roads_simple_diff_lanes") if road_vector_paths else None,
+        "prepared_roads_all_diff_lanes": road_vector_paths.get("roads_all_diff_lanes") if road_vector_paths else None,
     }
 
     logger.info("--- Feature Building Task Completed ---")
@@ -241,7 +271,6 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     return results
 
 
-# --- Example Usage ---
 if __name__ == "__main__":
     # Basic setup for standalone testing
     logging.basicConfig(
