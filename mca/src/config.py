@@ -187,7 +187,7 @@ class OutputFilesConfig(BaseModel):
     prepared_activity_splits_gpkg: str = "prepared_activity_splits.gpkg"
     prepared_traffic_points_gpkg: str = "prepared_traffic_points.gpkg"
     prepared_roads_gpkg: str = "prepared_roads_all_samferdsel.gpkg"  # From N50 Samferdsel
-    prepared_bike_lanes_filtered_gpkg: str = "prepared_bike_lanes_filtered.gpkg" # Filtered from Samferdsel
+    prepared_bike_lanes_gpkg: str = "prepared_bike_lanes_filtered.gpkg" # Filtered from Samferdsel
     prepared_roads_simple_filtered_gpkg: str = "prepared_roads_simple_filtered.gpkg" # Filtered from Samferdsel
     prepared_roads_simple_diff_lanes_gpkg: str = "prepared_roads_simple_diff_lanes.gpkg" # Difference: simple roads - bike lanes
     prepared_roads_all_diff_lanes_gpkg: str = "prepared_roads_all_diff_lanes.gpkg" # Difference: all roads - bike lanes
@@ -256,7 +256,7 @@ class ProcessingConfig(BaseModel):
     interpolation_crs_epsg: int = 25833  # UTM Zone 33N for Oslo
     map_crs_epsg: int = 4326  # WGS 84 for map display
     output_crs_epsg: int = 25833  # UTM Zone 33N for wbt  # TODO remove from collect/*.py
-    output_cell_size: float = 15.0  # Meters, adjust as needed
+    output_cell_size: float = 10.0  # Meters, adjust as needed
     seed: int = 42  # Random seed for reproducibility
     train_test_split_fraction: float = 0.8  # Fraction of data for training
     
@@ -306,7 +306,9 @@ class ProcessingConfig(BaseModel):
     road_buffer_distance: Optional[float] = Field(
         default=5.0, description="Optional buffer for road/lane matching (meters)"
     )  # TODO remove if not used
-    slope_units: str = "degrees"  # 'degrees' or 'percent'
+    
+    slope_units: str = "percent"  # 'degrees' or 'percent'
+    
     bike_lane_buffer: float = Field(
         default=20.0, description="Buffer size for bike lanes (meters)"
     )
