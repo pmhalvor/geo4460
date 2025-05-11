@@ -679,7 +679,7 @@ if __name__ == "__main__":
     logger.info(f"Using input features from: {previous_run_output_dir}")
 
     # Define the output directory for this test run's overlays and maps
-    test_output_dir = settings.paths.base_dir / "output" / "mca_combine_features_test_2"
+    test_output_dir = settings.paths.base_dir / "output" / "mca_combine_features"
     test_output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Saving test outputs (overlays, maps) to: {test_output_dir}")
     # Override the default output dir in settings for this run
