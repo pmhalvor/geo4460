@@ -290,7 +290,7 @@ class ProcessingConfig(BaseModel):
     )  # TODO remove if not used
     slope_units: str = "degrees"  # 'degrees' or 'percent'
     bike_lane_buffer: float = Field(
-        default=5.0, description="Buffer size for bike lanes (meters)"
+        default=10.0, description="Buffer size for bike lanes (meters)"
     )
 
     # Heatmap (Average Speed) IDW Settings

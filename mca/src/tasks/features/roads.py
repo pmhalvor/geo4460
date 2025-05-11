@@ -1,10 +1,11 @@
 import logging
 import geopandas as gpd
 from pydantic import BaseModel
+from pathlib import Path # Added Path
 
 # Local imports
 from src.tasks.features.feature_base import FeatureBase
-from src.utils import load_vector_data
+from src.utils import load_vector_data, display_multi_layer_on_folium_map # Added display_multi_layer_on_folium_map
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +258,81 @@ class Roads(FeatureBase):
 
         return output_paths
 
+    def create_multi_layer_visualization(self, output_files_dict: dict):
+        """
+        Creates a single multi-layer visualization of all generated road layers.
+        """
+        logger.info("Creating multi-layer visualization for all road layers...")
+
+        if not output_files_dict:
+            logger.warning("No output_files_dict provided for visualization.")
+            return None
+
+        output_html_path = self.settings.paths.output_dir / "roads_multi_layer_map.html"
+        
+        # Define distinct colors for each layer for better visual differentiation
+        # Using a dictionary to map layer keys to colors and display names
+        layer_styles = {
+            "samferdsel_all": {"name": "All Roads (Samferdsel)", "color": "#3388ff", "show": False}, # Blue
+            "bike_lanes_filtered": {"name": "Bike Lanes", "color": "#00ff00", "show": False},       # Green
+            "roads_simple_filtered": {"name": "Simple Roads", "color": "#ff7f00", "show": False},  # Orange
+            "roads_simple_diff_lanes": {"name": "Simple Roads (No Bike Lanes)", "color": "#ff00ff", "show": False}, # Magenta
+            "roads_all_diff_lanes": {"name": "All Roads (No Bike Lanes)", "color": "#ff0000", "show": True} # Red - this is the requested layer
+        }
+
+        layers_for_map = []
+        default_line_weight = 2
+        default_tooltip_cols = ["OBJTYPE", "VEGTYPE", "MOTORVEG"] # Common N50 attributes, adjust as needed
+
+        for key, file_path_obj in output_files_dict.items():
+            if not file_path_obj or not isinstance(file_path_obj, Path) or not file_path_obj.exists():
+                logger.warning(f"Skipping layer '{key}' as its path is invalid or file does not exist: {file_path_obj}")
+                continue
+
+            style_info = layer_styles.get(key)
+            if not style_info:
+                logger.warning(f"No style defined for layer '{key}'. Skipping.")
+                continue
+            
+            # Attempt to load GDF to check for columns for tooltip/popup
+            # This is optional but good for richer maps.
+            try:
+                gdf_check = gpd.read_file(file_path_obj)
+                current_tooltip_cols = [col for col in default_tooltip_cols if col in gdf_check.columns]
+                if not current_tooltip_cols and not gdf_check.empty: # If default cols not found, use first few
+                    current_tooltip_cols = gdf_check.columns.tolist()[:3]
+            except Exception as e:
+                logger.debug(f"Could not read GDF for {key} to determine tooltip columns: {e}")
+                current_tooltip_cols = []
+
+
+            layers_for_map.append({
+                'path': file_path_obj,
+                'name': style_info["name"],
+                'type': 'vector',
+                'vector': {
+                    'line_color': style_info["color"], # Use line_color for simple solid color
+                    'line_weight': default_line_weight,
+                    'tooltip_cols': current_tooltip_cols,
+                    'popup_cols': current_tooltip_cols, # Same as tooltip for simplicity
+                    'show': style_info["show"]
+                }
+            })
+
+        if not layers_for_map:
+            logger.warning("No valid layers could be prepared for the map.")
+            return None
+
+        try:
+            display_multi_layer_on_folium_map(
+                layers=layers_for_map,
+                output_html_path_str=str(output_html_path),
+            )
+            return str(output_html_path)
+        except Exception as e:
+            logger.error(f"Error creating multi-layer roads visualization: {e}", exc_info=True)
+            return None
+
 
 if __name__ == "__main__":
     from src.config import settings
@@ -288,10 +364,20 @@ if __name__ == "__main__":
     if roads_processor.gdf_roads_all_diff_lanes is not None:
         logger.info(f"All Roads (diff Lanes) features: {len(roads_processor.gdf_roads_all_diff_lanes)}")
         logger.info(f"  Output file: {output_files.get('roads_all_diff_lanes')}")
-    if hasattr(roads_processor, 'length_ratio') and roads_processor.length_ratio is not None:
-         logger.info(f"Length Ratio (simple_diff / all_diff): {roads_processor.length_ratio:.4f}")
+        if hasattr(roads_processor, 'length_ratio') and roads_processor.length_ratio is not None:
+             logger.info(f"Length Ratio (simple_diff / all_diff): {roads_processor.length_ratio:.4f}")
     else:
         logger.warning("Length ratio was not calculated or available.")
 
     logger.info("Check the output directory for generated GeoPackage files.")
+
+    # Create multi-layer visualization
+    if output_files:
+        logger.info("Creating multi-layer visualization for roads...")
+        visualization_path = roads_processor.create_multi_layer_visualization(output_files)
+        if visualization_path:
+            logger.info(f"Created multi-layer roads visualization: {visualization_path}")
+        else:
+            logger.warning("Failed to create multi-layer roads visualization.")
+
     logger.info("--- Test Run Complete ---")
