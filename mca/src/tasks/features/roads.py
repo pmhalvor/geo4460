@@ -19,6 +19,7 @@ class BikeLanes(FeatureBase):
     def __init__(self, settings: BaseModel, wbt: object = None):
         super().__init__(settings, wbt)
         self.gdf_kml_bike_lanes = None 
+        self.load_data() # Load data immediately so layer available for roads processing
 
     def load_data(self) -> None:
         """Loads bike lane data from KML, filters, and prepares it."""
