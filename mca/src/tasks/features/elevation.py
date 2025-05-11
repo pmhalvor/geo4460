@@ -23,14 +23,6 @@ from src.utils import (
 )
 
 # Configure logging (similar to heatmap.py, but maybe keep file handler for elevation specifics)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    # handlers=[  NOTE: Uncomment if you want to log to a file
-    #     logging.FileHandler("elevation.log"), # Keep specific log file
-    #     logging.StreamHandler()
-    # ]
-)
 logger = logging.getLogger(__name__)
 
 
@@ -621,6 +613,14 @@ if __name__ == "__main__":
     from whitebox import WhiteboxTools
     from src.utils import display_raster_on_folium_map, display_multi_layer_on_folium_map
 
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        # handlers=[  NOTE: Uncomment if you want to log to a file
+        #     logging.FileHandler("elevation.log"), # Keep specific log file
+        #     logging.StreamHandler()
+        # ]
+    )
     logger.info("--- Running elevation.py Standalone Test ---")
 
     # Check if settings are loaded correctly
@@ -701,33 +701,33 @@ if __name__ == "__main__":
                     if len(raster_paths) > 0:
                         logger.info("--- Displaying Generated Rasters ---")
                         
-                        # 1. First create individual maps for each raster (backward compatibility)
-                        for path_str in raster_paths:
-                            path_obj = Path(path_str)
-                            logger.info(f"Processing single raster for display: {path_obj.name}")
-                            if not path_obj.exists():
-                                logger.warning(f"  - Raster file not found: {path_obj}. Skipping display.")
-                                continue
+                        # # 1. First create individual maps for each raster (backward compatibility)
+                        # for path_str in raster_paths:
+                        #     path_obj = Path(path_str)
+                        #     logger.info(f"Processing single raster for display: {path_obj.name}")
+                        #     if not path_obj.exists():
+                        #         logger.warning(f"  - Raster file not found: {path_obj}. Skipping display.")
+                        #         continue
                                 
-                            try:
-                                # Define output path for the individual map
-                                single_map_output_path = settings.paths.output_dir / f"{path_obj.stem}_single_map.html"
+                        #     try:
+                        #         # Define output path for the individual map
+                        #         single_map_output_path = settings.paths.output_dir / f"{path_obj.stem}_single_map.html"
                                 
-                                # Determine colormap based on file type
-                                cmap = 'terrain' if 'dem' in path_obj.stem.lower() else 'coolwarm' 
-                                logger.info(f"  - Using colormap: {cmap}")
+                        #         # Determine colormap based on file type
+                        #         cmap = 'terrain' if 'dem' in path_obj.stem.lower() else 'coolwarm' 
+                        #         logger.info(f"  - Using colormap: {cmap}")
                                 
-                                # Display using the single-layer function
-                                display_raster_on_folium_map(
-                                    raster_path_str=str(path_obj),
-                                    output_html_path_str=str(single_map_output_path),
-                                    target_crs_epsg=settings.processing.map_crs_epsg,  # Use map_crs_epsg (4326) for visualizing
-                                    cmap_name=cmap,
-                                    layer_name=path_obj.stem
-                                )
-                                logger.info(f"  - Saved single-layer visualization: {single_map_output_path}")
-                            except Exception as display_e:
-                                logger.error(f"  - Error displaying raster {path_str} on individual map: {display_e}", exc_info=True)
+                        #         # Display using the single-layer function
+                        #         display_raster_on_folium_map(
+                        #             raster_path_str=str(path_obj),
+                        #             output_html_path_str=str(single_map_output_path),
+                        #             target_crs_epsg=settings.processing.map_crs_epsg,  # Use map_crs_epsg (4326) for visualizing
+                        #             cmap_name=cmap,
+                        #             layer_name=path_obj.stem
+                        #         )
+                        #         logger.info(f"  - Saved single-layer visualization: {single_map_output_path}")
+                        #     except Exception as display_e:
+                        #         logger.error(f"  - Error displaying raster {path_str} on individual map: {display_e}", exc_info=True)
                         
                         # 2. Create a multi-layer map with all successfully generated rasters
                         try:

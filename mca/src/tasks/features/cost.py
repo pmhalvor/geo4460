@@ -15,12 +15,10 @@ from src.tasks.features.feature_base import FeatureBase
 from src.config import AppConfig
 from src.utils import (
     load_raster_data,
-    save_raster_data,
     load_vector_data,
     get_raster_profile,
     align_rasters,
     reproject_gdf,
-    display_raster_on_folium_map,
     display_multi_layer_on_folium_map,
 )
 
@@ -41,7 +39,7 @@ class CostLayer(FeatureBase):
     # Define constants for clarity
     ROAD_MASK_VALUE = 1
     NO_ROAD_MASK_VALUE = 0
-    IMPOSSIBLE_COST_FACTOR = 1e6 # Factor to multiply max valid cost for impossible areas
+    IMPOSSIBLE_COST_FACTOR = 1e4 # Factor to multiply max valid cost for impossible areas
 
     def __init__(
         self,
@@ -173,13 +171,23 @@ class CostLayer(FeatureBase):
                  return None, None
             roads_gdf = roads_gdf[roads_gdf.geometry.is_valid & ~roads_gdf.geometry.is_empty]
             if roads_gdf.empty:
-                 logger.error("No valid geometries remain after filtering before buffering.")
-                 return None, None
+                logger.error("No valid geometries remain after filtering before buffering.")
+                return None, None
+
+            # TODO refactor manual reprojection
+            logger.info("Before "*50)
+            logger.info(roads_gdf.crs)
+            roads_gdf = roads_gdf.to_crs(epsg=25833)
+            logger.info("After "*50)
+            logger.info(roads_gdf.crs)
 
             buffered_roads = roads_gdf.buffer(buffer_dist)
             logger.info("Buffering complete.")
+            logger.warning(roads_gdf.crs)
+            logger.warning(buffered_roads.crs)
 
             # Prepare shapes for rasterization
+            # shapes = [(geom, self.ROAD_MASK_VALUE) for geom in roads_gdf]
             shapes = [(geom, self.ROAD_MASK_VALUE) for geom in buffered_roads]
 
             # Rasterize
@@ -213,7 +221,6 @@ class CostLayer(FeatureBase):
         except Exception as e:
             logger.error(f"Error rasterizing roads: {e}", exc_info=True)
             return None, None
-
 
     def _calculate_slope_cost(self) -> Optional[np.ndarray]:
         """Loads slope raster and calculates initial cost based on slope weight."""
@@ -296,7 +303,6 @@ class CostLayer(FeatureBase):
         except Exception as e:
             logger.error(f"Error calculating speed cost: {e}", exc_info=True)
             return None
-
 
     def _combine_costs(
         self,
@@ -495,7 +501,7 @@ class CostLayer(FeatureBase):
                     slope_raster_path = self._postprocess_raster_crs(str(slope_raster_path))
                 layers.append({
                     'path': slope_raster_path, # slope should already be in 4326
-                    'name': 'Slope (degrees)',
+                    'name': f'Slope ({self.settings.processing.slope_units})',
                     'type': 'raster',
                     'raster': {
                         'cmap': 'terrain',
@@ -506,7 +512,7 @@ class CostLayer(FeatureBase):
                 })
                 logger.info(f"Slope raster layer added to visualization: {slope_raster_path}")
             else:
-                logger.info(f"Slope raster not found at {str(slope_raster_path)}. Skipping slope layer.")
+                logger.warning(f"Slope raster not found at {str(slope_raster_path)}. Skipping slope layer.")
             
             # 3. Add speed raster layer (if available)
             if speed_raster_path and speed_raster_path.is_file():
@@ -524,26 +530,26 @@ class CostLayer(FeatureBase):
                 })
                 logger.info(f"Speed raster layer added to visualization: {speed_raster_4326}")
             else:
-                logger.info(f"Speed raster not found at {str(speed_raster_path)}. Skipping speed layer.")
+                logger.warning(f"Speed raster not found at {str(speed_raster_path)}. Skipping speed layer.")
             
-            # 4. Add road mask layer (if available)
-            road_mask_path = self.output_paths.get("rasterized_roads_mask")
-            if road_mask_path and road_mask_path.is_file():
-                road_mask_4326 = self._postprocess_raster_crs(str(road_mask_path))
-                layers.append({
-                    'path': road_mask_4326,
-                    'name': 'Road Network (Buffered)',
-                    'type': 'raster',
-                    'raster': {
-                        'cmap': 'binary',
-                        'opacity': 0.5,
-                        'nodata_transparent': True,
-                        'show': False  # Hidden by default
-                    }
-                })
-                logger.info(f"Road mask layer added to visualization: {road_mask_4326}")
-            else:
-                logger.info(f"Road mask raster not found at {str(road_mask_path)}. Skipping road layer.")
+            # # 4. Add road mask layer (if available) TODO remove
+            # road_mask_path = self.output_paths.get("rasterized_roads_mask")
+            # if road_mask_path and road_mask_path.is_file():
+            #     road_mask_4326 = self._postprocess_raster_crs(str(road_mask_path))
+            #     layers.append({
+            #         'path': road_mask_4326,
+            #         'name': 'Road Network (Buffered)',
+            #         'type': 'raster',
+            #         'raster': {
+            #             'cmap': 'binary',
+            #             'opacity': 0.5,
+            #             'nodata_transparent': True,
+            #             'show': False  # Hidden by default
+            #         }
+            #     })
+            #     logger.info(f"Road mask layer added to visualization: {road_mask_4326}")
+            # else:
+            #     logger.warning(f"Road mask raster not found at {str(road_mask_path)}. Skipping road layer.")
             
             # Create the multi-layer map
             display_multi_layer_on_folium_map(
@@ -611,6 +617,7 @@ class CostLayer(FeatureBase):
         if normalized_cost_array is None:
             logger.error("Failed to normalize cost raster. Aborting.")
             return None
+        normalized_cost_array = combined_cost_array
 
         # 6. Save Final Raster
         try:
@@ -677,14 +684,14 @@ if __name__ == "__main__":
 
         # --- Define Input Paths (ASSUMPTIONS based on FeatureBase naming) ---
         # These paths MUST exist from previous workflow steps for the test to run
-        # Replace with actual paths if testing outside the full workflow
+        # Replace with actual paths if testing outside the full workflow # TODO uncomment
         # assumed_slope_raster = settings.paths.output_dir / "slope_raster.tif" # Example name
         # assumed_roads_vector = settings.paths.output_dir / "prepared_roads_gpkg.gpkg" # Example name from Roads feature
         # assumed_speed_raster = settings.paths.output_dir / "average_speed_raster.tif" # Example name from Heatmap feature
 
-        assumed_slope_raster = Path("output/mca_20250422_0921_elevation_idw/slope.tif") 
-        assumed_roads_vector = Path("output/mca_20250423_1257_roads/prepared_roads_all_samferdsel.gpkg")
-        assumed_speed_raster = Path("output/mca_20250421_1749_heatmap/average_speed.tif")
+        assumed_slope_raster = Path("output/mca_20250511_1414/slope.tif") 
+        assumed_roads_vector = Path("output/mca_20250511_1414/prepared_roads_simple_filtered.gpkg")
+        assumed_speed_raster = Path("output/mca_20250511_1414/average_speed.tif")
 
         # Check if assumed files exist
         inputs_ok = True

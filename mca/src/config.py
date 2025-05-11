@@ -250,7 +250,7 @@ class ProcessingConfig(BaseModel):
 
     # Compute Settings
     wbt_verbose: bool = False
-    dask_workers: int = 4  # Number of Dask workers for parallel processing
+    dask_workers: int = 2  # Number of Dask workers for parallel processing
 
     # General Raster Settings
     interpolation_crs_epsg: int = 25833  # UTM Zone 33N for Oslo

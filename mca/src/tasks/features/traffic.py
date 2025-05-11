@@ -22,9 +22,8 @@ from src.utils import (
 )
 
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logger = logging.getLogger(__name__)
+
 
 
 def normalize_raster(raster_path):
@@ -56,7 +55,6 @@ def normalize_raster(raster_path):
 
     except Exception as e:
         logger.error(f"Error normalizing raster: {e}", exc_info=True)
-logger = logging.getLogger(__name__)
 
 
 class Traffic(FeatureBase):
@@ -720,6 +718,10 @@ if __name__ == "__main__":
     from whitebox import WhiteboxTools
     from src.utils import display_multi_layer_on_folium_map # Import the multi-layer display function
 
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
     logger.info("--- Running traffic.py Standalone Test ---")
 
     if settings:

@@ -112,15 +112,23 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     cost_raster_path = None # Initialize path to None
     cost_raster_delayed = None # Initialize delayed task to None
 
-    roads_vector_input_path = road_vector_paths.get("samferdsel_all") 
+    # roads_vector_input_path = road_vector_paths.get("samferdsel_all") 
+    roads_vector_input_path = road_vector_paths.get("roads_simple_filtered") # only use roads in cost calc
 
+    # TODO move to cost..
     if slope_path and roads_vector_input_path:
-        logger.info(f"Inputs found: Slope='{slope_path}', Roads Vector='{roads_vector_input_path}'")
+        # TODO remove manual debug hack
+        slope_path = slope_path.replace("_4326", "")
+        speed_raster_path = speed_raster_path.replace("_4326", "")
+
         try:
             # Convert paths to Path objects only if they are not None
             slope_raster_path_obj = Path(slope_path)
             roads_vector_path_obj = Path(roads_vector_input_path)
             speed_raster_path_obj = Path(speed_raster_path) if speed_raster_path else None
+
+            logger.info(f"Inputs found: Slope='{slope_path}', Roads Vector='{roads_vector_input_path}'")
+            logger.info(f"Average speed='{speed_raster_path if speed_raster_path else '.'}'")
 
             # Initialize CostLayer with VECTOR roads path
             cost_layer = CostLayer(
@@ -151,7 +159,7 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
                         
                         # Create multi-layer visualization after computation finishes
                         try:
-                            logger.info("Creating multi-layer visualization...")
+                            logger.info("Creating multi-layer cost visualization...")
                             slope_path = computed_results.get("slope_raster_path")
                             speed_path = computed_results.get("aligned_speed_path", computed_results.get("speed_raster_path"))
                             
@@ -263,7 +271,6 @@ def build_features_task(settings: AppConfig, wbt: WhiteboxTools):
     return results
 
 
-# --- Example Usage ---
 if __name__ == "__main__":
     # Basic setup for standalone testing
     logging.basicConfig(
