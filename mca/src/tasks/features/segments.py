@@ -460,7 +460,7 @@ class Segments(FeatureBase):
 
         ids_to_fetch = set(initial_gdf[segment_id_field].unique().tolist()) - set(cached_ids)
         ids_to_fetch = list(ids_to_fetch)
-        logger.debug(f"IDs to fetch: {ids_to_fetch} (type: {type(ids_to_fetch[0])})")
+        logger.debug(f"IDs to fetch: {ids_to_fetch} (type: {type(ids_to_fetch[0])})") if len(ids_to_fetch) else None
 
         newly_fetched_ids = set()
         newly_fetched_details = []
