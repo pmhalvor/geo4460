@@ -36,6 +36,7 @@ downloads/
 *.gpkg
 911*.csv 
 # 911* is the prefix for Oslo traffic data funnily enough
+GIS8_data/
 
 # mca
 ## strava 
