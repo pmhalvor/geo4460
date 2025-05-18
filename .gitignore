@@ -37,6 +37,7 @@ downloads/
 911*.csv 
 # 911* is the prefix for Oslo traffic data funnily enough
 GIS8_data/
+GEO3460_GNSS.pptx
 
 # mca
 ## strava 
